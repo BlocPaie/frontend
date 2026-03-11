@@ -1,65 +1,136 @@
-import Image from "next/image";
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { ArrowRight, Shield, Zap, Lock, Building2, HardHat, X, ChevronRight } from 'lucide-react';
 
 export default function Home() {
+  const [showRoleModal, setShowRoleModal] = useState(false);
+  const router = useRouter();
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div style={{ minHeight: '100vh', overflowX: 'hidden' }}>
+      {/* Background */}
+      <div style={{ position: 'fixed', inset: 0, zIndex: 0, background: 'radial-gradient(ellipse 80% 60% at 50% -10%, rgba(0,200,150,0.12) 0%, transparent 70%), radial-gradient(ellipse 60% 40% at 80% 80%, rgba(0,100,200,0.08) 0%, transparent 60%), var(--navy-950)' }} />
+      <div style={{ position: 'fixed', inset: 0, zIndex: 0, backgroundImage: 'linear-gradient(rgba(90,112,144,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(90,112,144,0.06) 1px, transparent 1px)', backgroundSize: '60px 60px', maskImage: 'radial-gradient(ellipse 80% 80% at 50% 50%, black 30%, transparent 100%)' }} />
+
+      {/* Navbar */}
+      <nav style={{ position: 'relative', zIndex: 10, padding: '1.25rem 2rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid rgba(90,112,144,0.15)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+          <div style={{ width: 36, height: 36, background: 'linear-gradient(135deg, #00c896, #00a078)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Shield size={18} color="#050d1a" strokeWidth={2.5} />
+          </div>
+          <span style={{ fontFamily: 'var(--font-syne), Syne, sans-serif', fontWeight: 800, fontSize: '1.25rem', letterSpacing: '-0.02em', color: 'var(--white)' }}>BlocPaie</span>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+        <button className="btn-ghost btn-md" onClick={() => setShowRoleModal(true)}>
+          Get Started <ChevronRight size={15} />
+        </button>
+      </nav>
+
+      {/* Hero */}
+      <main style={{ position: 'relative', zIndex: 10, maxWidth: 960, margin: '0 auto', padding: '5rem 2rem 4rem', textAlign: 'center' }}>
+        <div className="animate-fade-up opacity-0-init" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', background: 'rgba(0,200,150,0.08)', border: '1px solid rgba(0,200,150,0.2)', borderRadius: '100px', padding: '0.3rem 1rem', marginBottom: '2rem' }}>
+          <span className="glow-dot" />
+          <span style={{ fontFamily: 'var(--font-syne), Syne, sans-serif', fontSize: '0.72rem', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--green-400)' }}>
+            Live on Ethereum Sepolia
+          </span>
+        </div>
+
+        <h1 className="animate-fade-up opacity-0-init delay-100" style={{ fontSize: 'clamp(2.5rem, 7vw, 5rem)', fontWeight: 800, lineHeight: 1.08, letterSpacing: '-0.03em', margin: '0 0 1.5rem', color: 'var(--white)' }}>
+          On-chain payroll,{' '}
+          <span style={{ background: 'linear-gradient(135deg, #00c896, #00e6a8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            simplified.
+          </span>
+        </h1>
+
+        <p className="animate-fade-up opacity-0-init delay-200" style={{ fontSize: '1.15rem', color: 'var(--slate-300)', maxWidth: 580, margin: '0 auto 2.5rem', lineHeight: 1.7 }}>
+          Issue invoices, manage contractors, and settle payments on-chain — all with passkey authentication and zero gas fees.
+        </p>
+
+        <div className="animate-fade-up opacity-0-init delay-300" style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button className="btn-primary btn-lg animate-pulse-glow" onClick={() => setShowRoleModal(true)}>
+            Open App <ArrowRight size={18} />
+          </button>
+          <button className="btn-ghost btn-lg">View Docs</button>
+        </div>
+
+        {/* Feature cards */}
+        <div className="animate-fade-up opacity-0-init delay-400" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginTop: '5rem' }}>
+          {[
+            { icon: <Zap size={22} color="var(--green-400)" />, title: 'Instant Settlement', desc: 'Invoices execute on-chain in seconds. No wire transfers, no bank delays.' },
+            { icon: <Lock size={22} color="var(--green-400)" />, title: 'Privacy Vault', desc: 'Confidential payroll via Zama fhEVM. Amounts and payees stay encrypted.' },
+            { icon: <Shield size={22} color="var(--green-400)" />, title: 'Passkey Auth', desc: 'Sign transactions with biometrics. No seed phrases, no browser extensions.' },
+          ].map(f => (
+            <div key={f.title} className="glass-card glass-card-hover" style={{ padding: '1.5rem', borderRadius: 14, textAlign: 'left' }}>
+              <div style={{ width: 44, height: 44, background: 'rgba(0,200,150,0.08)', border: '1px solid rgba(0,200,150,0.2)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+                {f.icon}
+              </div>
+              <h3 style={{ margin: '0 0 0.5rem', fontSize: '1rem', fontWeight: 700 }}>{f.title}</h3>
+              <p style={{ margin: 0, fontSize: '0.855rem', color: 'var(--slate-300)', lineHeight: 1.6 }}>{f.desc}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Stats */}
+        <div className="animate-fade-up opacity-0-init delay-500" style={{ display: 'flex', justifyContent: 'center', gap: '3rem', marginTop: '4rem', flexWrap: 'wrap' }}>
+          {[
+            { value: '$2.4M', label: 'Total Settled' },
+            { value: '340+', label: 'Active Contracts' },
+            { value: '< 2s',  label: 'Avg Execution' },
+          ].map(s => (
+            <div key={s.label} style={{ textAlign: 'center' }}>
+              <div style={{ fontFamily: 'var(--font-syne), Syne, sans-serif', fontSize: '2rem', fontWeight: 800, background: 'linear-gradient(135deg, #00c896, #00e6a8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                {s.value}
+              </div>
+              <div style={{ fontSize: '0.82rem', color: 'var(--slate-400)', marginTop: 4 }}>{s.label}</div>
+            </div>
+          ))}
         </div>
       </main>
+
+      {/* Role Modal */}
+      {showRoleModal && (
+        <div className="modal-overlay" onClick={() => setShowRoleModal(false)}>
+          <div className="modal-box glass-card" style={{ maxWidth: 500, borderRadius: 20, padding: '2rem', width: '100%' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.75rem' }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: '1.35rem', fontWeight: 800 }}>Continue as…</h2>
+                <p style={{ margin: '0.3rem 0 0', fontSize: '0.83rem', color: 'var(--slate-300)' }}>Select how you&apos;ll use BlocPaie</p>
+              </div>
+              <button onClick={() => setShowRoleModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--slate-400)', padding: 4 }}>
+                <X size={20} />
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <RoleCard icon={<Building2 size={28} color="var(--green-400)" />} title="I'm a Company" desc="Deploy a vault and manage contractor payments" accent="var(--green-400)" accentBg="rgba(0,200,150,0.08)" accentBorder="rgba(0,200,150,0.2)" onClick={() => router.push('/register/company')} />
+              <RoleCard icon={<HardHat size={28} color="var(--amber-400)" />} title="I'm a Contractor" desc="Receive invoice payments from companies" accent="var(--amber-400)" accentBg="rgba(245,158,11,0.08)" accentBorder="rgba(245,158,11,0.2)" onClick={() => router.push('/register/contractor')} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function RoleCard({ icon, title, desc, accent, accentBg, accentBorder, onClick }: {
+  icon: React.ReactNode; title: string; desc: string; accent: string; accentBg: string; accentBorder: string; onClick: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{ background: hovered ? accentBg : 'rgba(15,32,64,0.5)', border: `1px solid ${hovered ? accentBorder : 'rgba(90,112,144,0.25)'}`, borderRadius: 14, padding: '1.5rem 1.25rem', cursor: 'pointer', textAlign: 'left', transition: 'background 0.2s, border-color 0.2s, transform 0.15s', transform: hovered ? 'translateY(-2px)' : 'none' }}
+    >
+      <div style={{ width: 52, height: 52, background: accentBg, border: `1px solid ${accentBorder}`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
+        {icon}
+      </div>
+      <div style={{ fontFamily: 'var(--font-syne), Syne, sans-serif', fontWeight: 700, fontSize: '1.05rem', color: 'var(--white)', marginBottom: '0.4rem' }}>{title}</div>
+      <div style={{ fontSize: '0.8rem', color: 'var(--slate-300)', lineHeight: 1.5 }}>{desc}</div>
+      <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'var(--font-syne), Syne, sans-serif', color: accent, opacity: hovered ? 1 : 0, transition: 'opacity 0.2s' }}>
+        Continue <ChevronRight size={13} />
+      </div>
+    </button>
   );
 }
