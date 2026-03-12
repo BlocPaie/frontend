@@ -1,25 +1,53 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { HardHat, ArrowRight } from 'lucide-react';
+import { useAccount } from 'wagmi';
+import { storeContractorId } from '@/lib/auth';
 import Navbar from '@/components/Navbar';
+
+const API = process.env.NEXT_PUBLIC_API_URL;
 
 export default function ContractorRegister() {
   const router = useRouter();
+  const { address, isConnected } = useAccount();
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const mockWallet = '0x71C7656EC7ab88b098defB751B7401B5f6d8976F';
+  // Guard: must have a Porto connection to be on this page
+  useEffect(() => {
+    if (!isConnected) router.replace('/');
+  }, [isConnected, router]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!address) return;
     setLoading(true);
-    setTimeout(() => {
+    setError('');
+
+    try {
+      const res = await fetch(`${API}/api/registry/contractors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, portoAccountAddress: address }),
+      });
+
+      if (res.status === 201) {
+        const body = await res.json();
+        storeContractorId(body.data._id);
+        router.push('/contractor/dashboard');
+        return;
+      }
+
+      const body = await res.json();
+      setError(body?.error?.message ?? 'Registration failed. Please try again.');
+    } catch {
+      setError('Could not reach the server. Please try again.');
+    } finally {
       setLoading(false);
-      router.push('/contractor/dashboard');
-    }, 1000);
+    }
   };
 
   return (
@@ -41,19 +69,18 @@ export default function ContractorRegister() {
               <input className="form-input" type="text" placeholder="Jane Smith" value={name} onChange={e => setName(e.target.value)} required />
             </div>
             <div>
-              <label className="form-label">Email</label>
-              <input className="form-input" type="email" placeholder="you@example.com" value={email} onChange={e => setEmail(e.target.value)} required />
-            </div>
-            <div>
               <label className="form-label">Wallet Address</label>
-              <input className="form-input mono" value={mockWallet} disabled style={{ fontSize: '0.78rem', color: 'var(--slate-300)' }} />
+              <input className="form-input mono" value={address ?? 'Connecting…'} disabled style={{ fontSize: '0.78rem', color: 'var(--slate-300)' }} />
               <p style={{ margin: '0.4rem 0 0', fontSize: '0.75rem', color: 'var(--slate-500)' }}>Auto-filled from your connected wallet</p>
             </div>
+            {error && (
+              <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--red-400, #f87171)' }}>{error}</p>
+            )}
             <button
               type="submit"
               className="btn-primary btn-md"
               style={{ marginTop: '0.25rem', justifyContent: 'center', background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
-              disabled={loading}
+              disabled={loading || !address}
             >
               {loading ? (
                 <>

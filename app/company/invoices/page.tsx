@@ -1,14 +1,32 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, XCircle, ChevronDown, X } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import StatusBadge from '@/components/StatusBadge';
 import TxHash from '@/components/TxHash';
-import { MOCK_INVOICES, type Invoice, type InvoiceStatus } from '@/data/mock';
+import { getToken, getCompanyId } from '@/lib/auth';
+import { useVaultBalance } from '@/hooks/useVaultBalance';
+import { useVaultCancelCheque } from '@/hooks/useVaultCancelCheque';
 
+const API = process.env.NEXT_PUBLIC_API_URL;
+
+type InvoiceStatus = 'pending' | 'executed' | 'cancelled';
 type StatusFilter = InvoiceStatus | 'all';
+
+interface Invoice {
+  _id: string;
+  contractorId: string;
+  contractorName: string;
+  amount: string;
+  amountNum: number;
+  issuedAt: string;
+  status: InvoiceStatus;
+  chequeId: string | null;
+  vaultAddress: string | null;
+  txHash?: string;
+}
 
 const STATUS_OPTIONS: { value: StatusFilter; label: string; color: string }[] = [
   { value: 'all',       label: 'All statuses',  color: 'var(--slate-300)' },
@@ -19,12 +37,50 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string; color: string }[] = 
 
 export default function CompanyInvoices() {
   const router = useRouter();
-  const [invoices, setInvoices] = useState<Invoice[]>(MOCK_INVOICES);
-  const [cancelling, setCancelling] = useState<string | null>(null);
+  const { vaultAddress, vaultId } = useVaultBalance();
+  const { cancelCheque, cancelling } = useVaultCancelCheque(vaultAddress ?? null, vaultId ?? null);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [cancelError, setCancelError] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [contractorFilter, setContractorFilter] = useState<string>('all');
   const [statusOpen, setStatusOpen] = useState(false);
   const [contractorOpen, setContractorOpen] = useState(false);
+
+  useEffect(() => {
+    const token = getToken();
+    const companyId = getCompanyId();
+    if (!token || !companyId) { setLoading(false); return; }
+
+    Promise.all([
+      fetch(`${API}/api/invoices`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+      fetch(`${API}/api/registry/companies/${companyId}/contractors`, { headers: { Authorization: `Bearer ${token}` } }).then(r => r.json()),
+    ]).then(([invoiceRes, contractorRes]) => {
+      const nameMap: Record<string, string> = {};
+      for (const c of contractorRes.data ?? []) nameMap[c._id] = c.name;
+
+      type RawTx = { txHash: string; vaultAddress: string; txType: string };
+      const mapped: Invoice[] = (invoiceRes.data?.invoices ?? []).map((inv: Record<string, unknown>) => {
+        const txs = (inv.transactions as RawTx[]) ?? [];
+        const registerTx = txs.find(t => t.txType === 'register') ?? txs[0];
+        const latestTx = txs[txs.length - 1];
+        return {
+          _id: inv._id as string,
+          contractorId: inv.contractorId as string,
+          contractorName: nameMap[inv.contractorId as string] ?? 'Unknown',
+          amount: inv.amount as string,
+          amountNum: parseFloat(inv.amount as string),
+          issuedAt: inv.issuedAt as string,
+          status: inv.status as InvoiceStatus,
+          chequeId: (inv.chequeId as string | undefined) ?? null,
+          vaultAddress: registerTx?.vaultAddress ?? null,
+          txHash: latestTx?.txHash,
+        };
+      });
+
+      setInvoices(mapped);
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
 
   const contractors = useMemo(() => [...new Set(invoices.map(i => i.contractorName))].sort(), [invoices]);
 
@@ -37,14 +93,26 @@ export default function CompanyInvoices() {
   const hasActiveFilters = statusFilter !== 'all' || contractorFilter !== 'all';
   const selectedStatus = STATUS_OPTIONS.find(o => o.value === statusFilter)!;
 
-  const handleCancel = (id: string) => {
-    setCancelling(id);
-    setTimeout(() => {
-      setInvoices(prev => prev.map(inv =>
-        inv.id === id ? { ...inv, status: 'cancelled', txHash: '0xc4nc311e' + Math.random().toString(16).slice(2, 50) } : inv
-      ));
-      setCancelling(null);
-    }, 1200);
+  const handleCancel = async (inv: Invoice) => {
+    setCancelError('');
+    try {
+      if (inv.chequeId) {
+        // Registered on-chain — cancel on-chain then confirm
+        const { txHash } = await cancelCheque(inv._id, inv.contractorId, inv.chequeId);
+        setInvoices(prev => prev.map(i => i._id === inv._id ? { ...i, status: 'cancelled', txHash } : i));
+      } else {
+        // Not yet registered on-chain — off-chain cancel only
+        const res = await fetch(`${API}/api/invoices/${inv._id}/cancel`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        if (res.ok) {
+          setInvoices(prev => prev.map(i => i._id === inv._id ? { ...i, status: 'cancelled' } : i));
+        }
+      }
+    } catch (err) {
+      setCancelError(err instanceof Error ? err.message : 'Cancellation failed. Please try again.');
+    }
   };
 
   const fmtAmount = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
@@ -60,7 +128,7 @@ export default function CompanyInvoices() {
           <div>
             <h1 style={{ margin: '0 0 0.2rem', fontSize: '1.6rem', fontWeight: 800 }}>Invoices</h1>
             <p style={{ margin: 0, color: 'var(--slate-300)', fontSize: '0.875rem' }}>
-              {filtered.length} of {invoices.length} shown · {invoices.filter(i => i.status === 'pending').length} pending
+              {loading ? 'Loading…' : `${filtered.length} of ${invoices.length} shown · ${invoices.filter(i => i.status === 'pending').length} pending`}
             </p>
           </div>
         </div>
@@ -128,6 +196,12 @@ export default function CompanyInvoices() {
           </div>
         </div>
 
+        {cancelError && (
+          <div style={{ padding: '0.75rem 1.25rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, color: '#f87171', fontSize: '0.875rem', marginBottom: '1rem' }}>
+            {cancelError}
+          </div>
+        )}
+
         {/* Table */}
         <div className="glass-card animate-fade-up opacity-0-init delay-200" style={{ borderRadius: 16, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
@@ -136,22 +210,24 @@ export default function CompanyInvoices() {
                 <tr><th>Invoice ID</th><th>Contractor</th><th style={{ textAlign: 'right' }}>Amount</th><th>Created</th><th>Status</th><th>Actions / Tx Hash</th></tr>
               </thead>
               <tbody>
-                {filtered.length === 0 ? (
+                {loading ? (
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '3rem', color: 'var(--slate-400)' }}>Loading…</td></tr>
+                ) : filtered.length === 0 ? (
                   <tr><td colSpan={6} style={{ textAlign: 'center', padding: '3rem', color: 'var(--slate-400)' }}>No invoices match the current filters.</td></tr>
                 ) : filtered.map((inv, i) => (
-                  <tr key={inv.id} style={{ animationDelay: `${i * 0.04}s` }}>
-                    <td><span className="mono" style={{ fontSize: '0.78rem', color: 'var(--green-400)', fontWeight: 500 }}>{inv.id}</span></td>
+                  <tr key={inv._id} style={{ animationDelay: `${i * 0.04}s` }}>
+                    <td><span className="mono" style={{ fontSize: '0.78rem', color: 'var(--green-400)', fontWeight: 500 }}>{inv._id.slice(-8)}</span></td>
                     <td style={{ color: 'var(--white)', fontWeight: 500 }}>{inv.contractorName}</td>
-                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono), IBM Plex Mono, monospace', fontSize: '0.875rem', fontWeight: 500, color: 'var(--white)' }}>{fmtAmount(inv.amount)}</td>
-                    <td style={{ color: 'var(--slate-400)', fontSize: '0.82rem' }}>{fmtDate(inv.createdDate)}</td>
+                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono), IBM Plex Mono, monospace', fontSize: '0.875rem', fontWeight: 500, color: 'var(--white)' }}>{fmtAmount(inv.amountNum)}</td>
+                    <td style={{ color: 'var(--slate-400)', fontSize: '0.82rem' }}>{fmtDate(inv.issuedAt)}</td>
                     <td><StatusBadge status={inv.status} /></td>
                     <td>
                       {inv.status === 'pending' && (
-                        <button className="btn-danger btn-sm" onClick={() => handleCancel(inv.id)} disabled={cancelling === inv.id}>
-                          {cancelling === inv.id ? (
+                        <button className="btn-danger btn-sm" onClick={() => handleCancel(inv)} disabled={cancelling === inv._id}>
+                          {cancelling === inv._id ? (
                             <><span style={{ display: 'inline-block', width: 11, height: 11, border: '1.5px solid #ef4444', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />Cancelling…</>
                           ) : (
-                            <><XCircle size={13} /> Cancel Invoice</>
+                            <><XCircle size={13} /> Cancel</>
                           )}
                         </button>
                       )}

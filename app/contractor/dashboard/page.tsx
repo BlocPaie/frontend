@@ -1,39 +1,87 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Copy, Check, Clock, CheckCircle2, Zap } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import TxHash from '@/components/TxHash';
-import { CONTRACTOR_PENDING, CONTRACTOR_EXECUTED, type Invoice } from '@/data/mock';
+import { getContractorId, getToken } from '@/lib/auth';
+import { useVaultExecuteCheque } from '@/hooks/useVaultExecuteCheque';
 
-const MY_ID = 'CTR-0042';
+const API = process.env.NEXT_PUBLIC_API_URL;
+
+interface Invoice {
+  _id: string;
+  companyId: string;
+  vaultAddress: string | null;
+  amount: string;
+  issuedAt: string;
+  status: 'pending' | 'executed' | 'cancelled';
+  chequeId: string | null;
+  txHash?: string;
+}
 
 export default function ContractorDashboard() {
-  const [pending, setPending] = useState<Invoice[]>(CONTRACTOR_PENDING);
-  const [executed, setExecuted] = useState<Invoice[]>(CONTRACTOR_EXECUTED);
-  const [executing, setExecuting] = useState<string | null>(null);
+  const contractorId = getContractorId() ?? '';
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [loading, setLoading] = useState(true);
   const [idCopied, setIdCopied] = useState(false);
+  const [error, setError] = useState('');
+  const { executeCheque, executing } = useVaultExecuteCheque();
+
+  useEffect(() => {
+    const token = getToken();
+    if (!token) { setLoading(false); return; }
+
+    fetch(`${API}/api/invoices`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(body => {
+        type RawTx = { txHash: string; vaultAddress: string; txType: string };
+        const mapped: Invoice[] = (body.data?.invoices ?? []).map((inv: Record<string, unknown>) => {
+          const txs = (inv.transactions as RawTx[]) ?? [];
+          const registerTx = txs.find(t => t.txType === 'register') ?? txs[0];
+          const latestTx = txs[txs.length - 1];
+          return {
+            _id: inv._id as string,
+            companyId: inv.companyId as string,
+            vaultAddress: registerTx?.vaultAddress ?? null,
+            amount: inv.amount as string,
+            issuedAt: inv.issuedAt as string,
+            status: inv.status as Invoice['status'],
+            chequeId: (inv.chequeId as string | undefined) ?? null,
+            txHash: latestTx?.txHash,
+          };
+        });
+        setInvoices(mapped);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const pending = invoices.filter(i => i.status === 'pending');
+  const executed = invoices.filter(i => i.status === 'executed');
 
   const copyId = () => {
-    navigator.clipboard.writeText(MY_ID);
+    navigator.clipboard.writeText(contractorId);
     setIdCopied(true);
     setTimeout(() => setIdCopied(false), 1500);
   };
 
-  const handleExecute = (id: string) => {
-    setExecuting(id);
-    setTimeout(() => {
-      const inv = pending.find(i => i.id === id)!;
-      const done: Invoice = { ...inv, status: 'executed', txHash: '0xe' + Math.random().toString(16).slice(2, 62) };
-      setPending(prev => prev.filter(i => i.id !== id));
-      setExecuted(prev => [done, ...prev]);
-      setExecuting(null);
-    }, 1800);
+  const handleExecute = async (inv: Invoice) => {
+    if (!inv.vaultAddress || inv.chequeId == null) return;
+    setError('');
+    try {
+      const { txHash } = await executeCheque(inv._id, inv.vaultAddress as `0x${string}`, parseInt(inv.chequeId, 10));
+      setInvoices(prev => prev.map(i =>
+        i._id === inv._id ? { ...i, status: 'executed', txHash } : i
+      ));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Execution failed. Please try again.');
+    }
   };
 
-  const fmtAmount = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+  const fmtAmount = (s: string) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(parseFloat(s));
   const fmtDate   = (s: string) => new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  const isEmpty   = pending.length === 0 && executed.length === 0;
+  const isEmpty   = !loading && pending.length === 0 && executed.length === 0;
 
   return (
     <div style={{ minHeight: '100vh' }}>
@@ -53,7 +101,7 @@ export default function ContractorDashboard() {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: '0.72rem', color: 'var(--amber-400)', fontFamily: 'var(--font-syne), Syne, sans-serif', fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '0.2rem' }}>Your Contractor ID</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-              <span className="mono" style={{ fontSize: '1.1rem', fontWeight: 500, color: 'var(--white)', letterSpacing: '0.05em' }}>{MY_ID}</span>
+              <span className="mono" style={{ fontSize: '1.1rem', fontWeight: 500, color: 'var(--white)', letterSpacing: '0.05em' }}>{contractorId}</span>
               <button onClick={copyId} style={{ background: 'none', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 6, padding: '0.2rem 0.6rem', cursor: 'pointer', color: idCopied ? 'var(--green-400)' : 'var(--amber-400)', fontSize: '0.75rem', fontFamily: 'var(--font-syne), Syne, sans-serif', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.3rem', transition: 'color 0.2s' }}>
                 {idCopied ? <><Check size={11} /> Copied!</> : <><Copy size={11} /> Copy</>}
               </button>
@@ -64,14 +112,20 @@ export default function ContractorDashboard() {
           </p>
         </div>
 
-        {isEmpty ? (
+        {error && (
+          <div style={{ padding: '0.75rem 1.25rem', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, color: '#f87171', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div className="glass-card" style={{ borderRadius: 16, padding: '3rem', textAlign: 'center', color: 'var(--slate-400)' }}>Loading…</div>
+        ) : isEmpty ? (
           <div className="glass-card animate-fade-up opacity-0-init delay-200" style={{ borderRadius: 16, padding: '3.5rem 2rem', textAlign: 'center' }}>
             <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>📭</div>
             <h2 style={{ margin: '0 0 0.75rem', fontSize: '1.15rem', fontWeight: 700 }}>No invoices yet</h2>
             <p style={{ margin: 0, color: 'var(--slate-300)', fontSize: '0.875rem', maxWidth: 460, marginInline: 'auto', lineHeight: 1.7 }}>
-              No invoices have been created for you yet. Share your personal ID{' '}
-              <span className="mono" style={{ color: 'var(--amber-400)', background: 'rgba(245,158,11,0.08)', padding: '0.1rem 0.4rem', borderRadius: 4, fontSize: '0.875rem' }}>{MY_ID}</span>
-              {' '}with any company that wishes to register you so they can create an invoice on your behalf.
+              No invoices have been created for you yet. Share your contractor ID with a company to get started.
             </p>
           </div>
         ) : (
@@ -89,22 +143,26 @@ export default function ContractorDashboard() {
                 ) : (
                   <div style={{ overflowX: 'auto' }}>
                     <table className="data-table">
-                      <thead><tr><th>Invoice ID</th><th>Company</th><th style={{ textAlign: 'right' }}>Amount</th><th>Created</th><th>Action</th></tr></thead>
+                      <thead><tr><th>Invoice ID</th><th>Vault</th><th style={{ textAlign: 'right' }}>Amount</th><th>Created</th><th>Action</th></tr></thead>
                       <tbody>
                         {pending.map((inv, i) => (
-                          <tr key={inv.id} className="animate-fade-up opacity-0-init" style={{ animationDelay: `${0.35 + i * 0.06}s` }}>
-                            <td><span className="mono" style={{ fontSize: '0.78rem', color: 'var(--amber-400)', fontWeight: 500 }}>{inv.id}</span></td>
-                            <td style={{ color: 'var(--white)', fontWeight: 500 }}>{inv.companyName}</td>
+                          <tr key={inv._id} className="animate-fade-up opacity-0-init" style={{ animationDelay: `${0.35 + i * 0.06}s` }}>
+                            <td><span className="mono" style={{ fontSize: '0.78rem', color: 'var(--amber-400)', fontWeight: 500 }}>{inv._id.slice(-8)}</span></td>
+                            <td><span className="mono" style={{ fontSize: '0.78rem', color: 'var(--slate-300)' }}>{inv.vaultAddress ? `${inv.vaultAddress.slice(0, 6)}…${inv.vaultAddress.slice(-4)}` : '—'}</span></td>
                             <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono), IBM Plex Mono, monospace', fontSize: '0.875rem', fontWeight: 500, color: 'var(--white)' }}>{fmtAmount(inv.amount)}</td>
-                            <td style={{ color: 'var(--slate-400)', fontSize: '0.82rem' }}>{fmtDate(inv.createdDate)}</td>
+                            <td style={{ color: 'var(--slate-400)', fontSize: '0.82rem' }}>{fmtDate(inv.issuedAt)}</td>
                             <td>
-                              <button className="btn-primary btn-sm" onClick={() => handleExecute(inv.id)} disabled={executing === inv.id}>
-                                {executing === inv.id ? (
-                                  <><span style={{ display: 'inline-block', width: 11, height: 11, border: '1.5px solid #050d1a', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />Executing…</>
-                                ) : (
-                                  <><Zap size={12} /> Execute Invoice</>
-                                )}
-                              </button>
+                              {inv.chequeId != null ? (
+                                <button className="btn-primary btn-sm" onClick={() => handleExecute(inv)} disabled={executing === inv._id}>
+                                  {executing === inv._id ? (
+                                    <><span style={{ display: 'inline-block', width: 11, height: 11, border: '1.5px solid #050d1a', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />Executing…</>
+                                  ) : (
+                                    <><Zap size={12} /> Execute</>
+                                  )}
+                                </button>
+                              ) : (
+                                <span style={{ color: 'var(--slate-500)', fontSize: '0.78rem' }}>Awaiting registration</span>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -128,14 +186,14 @@ export default function ContractorDashboard() {
                 ) : (
                   <div style={{ overflowX: 'auto' }}>
                     <table className="data-table">
-                      <thead><tr><th>Invoice ID</th><th>Company</th><th style={{ textAlign: 'right' }}>Amount</th><th>Executed</th><th>Tx Hash</th></tr></thead>
+                      <thead><tr><th>Invoice ID</th><th>Vault</th><th style={{ textAlign: 'right' }}>Amount</th><th>Executed</th><th>Tx Hash</th></tr></thead>
                       <tbody>
                         {executed.map((inv, i) => (
-                          <tr key={inv.id} className="animate-fade-up opacity-0-init" style={{ animationDelay: `${0.4 + i * 0.06}s` }}>
-                            <td><span className="mono" style={{ fontSize: '0.78rem', color: 'var(--green-400)', fontWeight: 500 }}>{inv.id}</span></td>
-                            <td style={{ color: 'var(--white)', fontWeight: 500 }}>{inv.companyName}</td>
+                          <tr key={inv._id} className="animate-fade-up opacity-0-init" style={{ animationDelay: `${0.4 + i * 0.06}s` }}>
+                            <td><span className="mono" style={{ fontSize: '0.78rem', color: 'var(--green-400)', fontWeight: 500 }}>{inv._id.slice(-8)}</span></td>
+                            <td><span className="mono" style={{ fontSize: '0.78rem', color: 'var(--slate-300)' }}>{inv.vaultAddress ? `${inv.vaultAddress.slice(0, 6)}…${inv.vaultAddress.slice(-4)}` : '—'}</span></td>
                             <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono), IBM Plex Mono, monospace', fontSize: '0.875rem', fontWeight: 500, color: 'var(--white)' }}>{fmtAmount(inv.amount)}</td>
-                            <td style={{ color: 'var(--slate-400)', fontSize: '0.82rem' }}>{fmtDate(inv.createdDate)}</td>
+                            <td style={{ color: 'var(--slate-400)', fontSize: '0.82rem' }}>{fmtDate(inv.issuedAt)}</td>
                             <td>{inv.txHash ? <TxHash hash={inv.txHash} /> : <span style={{ color: 'var(--slate-500)', fontSize: '0.78rem' }}>—</span>}</td>
                           </tr>
                         ))}

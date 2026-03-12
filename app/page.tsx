@@ -1,12 +1,67 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowRight, Shield, Zap, Lock, Building2, HardHat, X, ChevronRight } from 'lucide-react';
+import { useConnect, useAccount } from 'wagmi';
+import { issueToken, storeCompanyId, getToken } from '@/lib/auth';
+
+const API = process.env.NEXT_PUBLIC_API_URL;
+
+async function routeAfterConnect(address: string, role: 'company' | 'contractor'): Promise<string> {
+  await issueToken(address, role);
+
+  if (role === 'company') {
+    const res = await fetch(`${API}/api/registry/companies/me`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (res.ok) {
+      const body = await res.json();
+      storeCompanyId(body.data._id);
+      const vaultsRes = await fetch(`${API}/api/registry/companies/${body.data._id}/vaults`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      const vaultsBody = await vaultsRes.json();
+      return vaultsBody.data?.length > 0 ? '/company/dashboard' : '/company/vault-setup';
+    }
+    return '/register/company';
+  }
+
+  // contractor
+  const res = await fetch(`${API}/api/registry/contractors/me`, {
+    headers: { Authorization: `Bearer ${getToken()}` },
+  });
+  return res.ok ? '/contractor/dashboard' : '/register/contractor';
+}
 
 export default function Home() {
   const [showRoleModal, setShowRoleModal] = useState(false);
+  const [pendingRole, setPendingRole] = useState<'company' | 'contractor' | null>(null);
   const router = useRouter();
+  const { connect, connectors, isPending } = useConnect();
+  const { isConnected, address } = useAccount();
+
+  // Route once Porto connect succeeds
+  useEffect(() => {
+    if (isConnected && address && pendingRole) {
+      const role = pendingRole;
+      setPendingRole(null);
+      routeAfterConnect(address, role)
+        .then(path => router.push(path))
+        .catch(console.error);
+    }
+  }, [isConnected, address, pendingRole, router]);
+
+  function handleRoleSelect(role: 'company' | 'contractor') {
+    if (isConnected && address) {
+      routeAfterConnect(address, role)
+        .then(path => router.push(path))
+        .catch(console.error);
+      return;
+    }
+    setPendingRole(role);
+    connect({ connector: connectors[0] });
+  }
 
   return (
     <div style={{ minHeight: '100vh', overflowX: 'hidden' }}>
@@ -102,8 +157,8 @@ export default function Home() {
               </button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <RoleCard icon={<Building2 size={28} color="var(--green-400)" />} title="I'm a Company" desc="Deploy a vault and manage contractor payments" accent="var(--green-400)" accentBg="rgba(0,200,150,0.08)" accentBorder="rgba(0,200,150,0.2)" onClick={() => router.push('/register/company')} />
-              <RoleCard icon={<HardHat size={28} color="var(--amber-400)" />} title="I'm a Contractor" desc="Receive invoice payments from companies" accent="var(--amber-400)" accentBg="rgba(245,158,11,0.08)" accentBorder="rgba(245,158,11,0.2)" onClick={() => router.push('/register/contractor')} />
+              <RoleCard icon={<Building2 size={28} color="var(--green-400)" />} title="I'm a Company" desc="Deploy a vault and manage contractor payments" accent="var(--green-400)" accentBg="rgba(0,200,150,0.08)" accentBorder="rgba(0,200,150,0.2)" loading={isPending && pendingRole === 'company'} onClick={() => handleRoleSelect('company')} />
+              <RoleCard icon={<HardHat size={28} color="var(--amber-400)" />} title="I'm a Contractor" desc="Receive invoice payments from companies" accent="var(--amber-400)" accentBg="rgba(245,158,11,0.08)" accentBorder="rgba(245,158,11,0.2)" loading={isPending && pendingRole === 'contractor'} onClick={() => handleRoleSelect('contractor')} />
             </div>
           </div>
         </div>
@@ -112,24 +167,25 @@ export default function Home() {
   );
 }
 
-function RoleCard({ icon, title, desc, accent, accentBg, accentBorder, onClick }: {
-  icon: React.ReactNode; title: string; desc: string; accent: string; accentBg: string; accentBorder: string; onClick: () => void;
+function RoleCard({ icon, title, desc, accent, accentBg, accentBorder, loading, onClick }: {
+  icon: React.ReactNode; title: string; desc: string; accent: string; accentBg: string; accentBorder: string; loading?: boolean; onClick: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   return (
     <button
       onClick={onClick}
+      disabled={loading}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{ background: hovered ? accentBg : 'rgba(15,32,64,0.5)', border: `1px solid ${hovered ? accentBorder : 'rgba(90,112,144,0.25)'}`, borderRadius: 14, padding: '1.5rem 1.25rem', cursor: 'pointer', textAlign: 'left', transition: 'background 0.2s, border-color 0.2s, transform 0.15s', transform: hovered ? 'translateY(-2px)' : 'none' }}
+      style={{ background: hovered ? accentBg : 'rgba(15,32,64,0.5)', border: `1px solid ${hovered ? accentBorder : 'rgba(90,112,144,0.25)'}`, borderRadius: 14, padding: '1.5rem 1.25rem', cursor: loading ? 'wait' : 'pointer', textAlign: 'left', transition: 'background 0.2s, border-color 0.2s, transform 0.15s', transform: hovered ? 'translateY(-2px)' : 'none', opacity: loading ? 0.7 : 1 }}
     >
       <div style={{ width: 52, height: 52, background: accentBg, border: `1px solid ${accentBorder}`, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
         {icon}
       </div>
       <div style={{ fontFamily: 'var(--font-syne), Syne, sans-serif', fontWeight: 700, fontSize: '1.05rem', color: 'var(--white)', marginBottom: '0.4rem' }}>{title}</div>
       <div style={{ fontSize: '0.8rem', color: 'var(--slate-300)', lineHeight: 1.5 }}>{desc}</div>
-      <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'var(--font-syne), Syne, sans-serif', color: accent, opacity: hovered ? 1 : 0, transition: 'opacity 0.2s' }}>
-        Continue <ChevronRight size={13} />
+      <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'var(--font-syne), Syne, sans-serif', color: accent, opacity: hovered || loading ? 1 : 0, transition: 'opacity 0.2s' }}>
+        {loading ? 'Connecting…' : 'Continue'} {!loading && <ChevronRight size={13} />}
       </div>
     </button>
   );

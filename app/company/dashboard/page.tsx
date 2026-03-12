@@ -1,33 +1,60 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAccount } from 'wagmi';
 import { FileText, Plus, Wallet, PieChart, UserPlus, ArrowDownToLine, X } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import RegisterInvoiceModal from '@/components/RegisterInvoiceModal';
-import { MOCK_CONTRACTORS, type Contractor } from '@/data/mock';
+import AddContractorModal from '@/components/AddContractorModal';
+import { useVaultBalance } from '@/hooks/useVaultBalance';
+import { useVaultDeposit } from '@/hooks/useVaultDeposit';
+import { getToken, getCompanyId } from '@/lib/auth';
 
-const INITIAL_BALANCE = 124_500;
-const ALLOCATED = 38_800;
+const API = process.env.NEXT_PUBLIC_API_URL;
+
+interface Contractor {
+  _id: string;
+  name: string;
+  portoAccountAddress: string;
+  createdAt: string;
+}
 
 export default function CompanyDashboard() {
   const router = useRouter();
-  const [contractors] = useState<Contractor[]>(MOCK_CONTRACTORS);
+  const { address } = useAccount();
+  const { vaultAddress, vaultType, vaultId, totalBalance, allocatedBalance, loading: loadingVault, refetchBalances } = useVaultBalance();
+  const [contractors, setContractors] = useState<Contractor[]>([]);
   const [invoiceTarget, setInvoiceTarget] = useState<Contractor | null>(null);
   const [showDeposit, setShowDeposit] = useState(false);
-  const [vaultBalance, setVaultBalance] = useState(INITIAL_BALANCE);
+  const [showAddContractor, setShowAddContractor] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
+
+  const fetchContractors = useCallback(async () => {
+    const companyId = getCompanyId();
+    if (!companyId) return;
+    const res = await fetch(`${API}/api/registry/companies/${companyId}/contractors`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (res.ok) {
+      const body = await res.json();
+      setContractors(body.data ?? []);
+    }
+  }, []);
+
+  useEffect(() => { fetchContractors(); }, [fetchContractors]);
 
   const handleInvoiceSubmit = () => {
     setInvoiceTarget(null);
     setSuccessMsg('Invoice created successfully!');
     setTimeout(() => setSuccessMsg(''), 3000);
+    refetchBalances();
   };
 
-  const handleDeposit = (amount: number) => {
-    setVaultBalance(prev => prev + amount);
+  const handleDeposit = () => {
     setShowDeposit(false);
-    setSuccessMsg(`$${amount.toLocaleString()} USDC deposited to vault.`);
+    refetchBalances();
+    setSuccessMsg('Funds deposited successfully!');
     setTimeout(() => setSuccessMsg(''), 3000);
   };
 
@@ -45,7 +72,14 @@ export default function CompanyDashboard() {
         <div className="animate-fade-up opacity-0-init" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '2rem', flexWrap: 'wrap', gap: '1rem' }}>
           <div>
             <h1 style={{ margin: '0 0 0.3rem', fontSize: '1.6rem', fontWeight: 800 }}>Dashboard</h1>
-            <p style={{ margin: 0, color: 'var(--slate-300)', fontSize: '0.875rem' }}>Acme Corp · Simple Token Vault</p>
+            <p style={{ margin: '0 0 0.25rem', color: 'var(--slate-300)', fontSize: '0.875rem' }}>
+              {loadingVault ? 'Loading…' : vaultType === 'erc20' ? 'Simple Token Vault' : vaultType ?? 'No vault'}
+            </p>
+            {address && (
+              <p className="mono" style={{ margin: 0, fontSize: '0.78rem', color: 'var(--slate-400)' }}>
+                {address}
+              </p>
+            )}
           </div>
           <div style={{ display: 'flex', gap: '0.75rem' }}>
             <button className="btn-primary btn-md" onClick={() => setShowDeposit(true)}>
@@ -69,18 +103,20 @@ export default function CompanyDashboard() {
           <StatCard
             icon={<Wallet size={20} color="var(--green-400)" />}
             label="Total Vault Balance"
-            value={fmtUsd(vaultBalance)}
+            value={fmtUsd(totalBalance ?? 0)}
             subtext="USDC · Sepolia"
             accentBg="rgba(0,200,150,0.06)"
             accentBorder="rgba(0,200,150,0.2)"
+            loading={loadingVault || totalBalance == null}
           />
           <StatCard
             icon={<PieChart size={20} color="var(--amber-400)" />}
             label="Allocated Balance"
-            value={fmtUsd(ALLOCATED)}
-            subtext="Across 4 invoices"
+            value={fmtUsd(allocatedBalance ?? 0)}
+            subtext="Pending invoices"
             accentBg="rgba(245,158,11,0.06)"
             accentBorder="rgba(245,158,11,0.2)"
+            loading={loadingVault || allocatedBalance == null}
           />
         </div>
 
@@ -91,24 +127,25 @@ export default function CompanyDashboard() {
               <h2 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>Contractors</h2>
               <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--slate-400)' }}>{contractors.length} registered</p>
             </div>
-            <button className="btn-ghost btn-sm"><UserPlus size={13} /> Add Contractor</button>
+            <button className="btn-ghost btn-sm" onClick={() => setShowAddContractor(true)}><UserPlus size={13} /> Add Contractor</button>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>ID</th><th>Name</th><th>Email</th><th>Wallet</th><th>Registered</th><th>Actions</th>
+                  <th>Name</th><th>Wallet</th><th>Registered</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>
+                {contractors.length === 0 && (
+                  <tr><td colSpan={4} style={{ textAlign: 'center', color: 'var(--slate-400)', padding: '2rem' }}>No contractors yet. Add one to get started.</td></tr>
+                )}
                 {contractors.map((c, i) => (
-                  <tr key={c.id} className="animate-fade-up opacity-0-init" style={{ animationDelay: `${0.25 + i * 0.06}s` }}>
-                    <td><span className="mono" style={{ fontSize: '0.78rem', color: 'var(--green-400)', fontWeight: 500 }}>{c.id}</span></td>
+                  <tr key={c._id} className="animate-fade-up opacity-0-init" style={{ animationDelay: `${0.25 + i * 0.06}s` }}>
                     <td style={{ fontWeight: 500, color: 'var(--white)' }}>{c.name}</td>
-                    <td style={{ color: 'var(--slate-300)' }}>{c.email}</td>
-                    <td><span className="mono" style={{ fontSize: '0.78rem' }}>{fmtAddress(c.walletAddress)}</span></td>
+                    <td><span className="mono" style={{ fontSize: '0.78rem' }}>{fmtAddress(c.portoAccountAddress)}</span></td>
                     <td style={{ color: 'var(--slate-400)', fontSize: '0.82rem' }}>
-                      {new Date(c.registeredDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {new Date(c.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </td>
                     <td>
                       <button className="btn-ghost btn-sm" style={{ fontSize: '0.78rem' }} onClick={() => setInvoiceTarget(c)}>
@@ -123,37 +160,61 @@ export default function CompanyDashboard() {
         </div>
       </div>
 
-      {invoiceTarget && (
+      {invoiceTarget && vaultId && vaultAddress && (
         <RegisterInvoiceModal
           contractor={invoiceTarget}
+          vaultId={vaultId}
+          vaultAddress={vaultAddress}
           onClose={() => setInvoiceTarget(null)}
           onSubmit={handleInvoiceSubmit}
         />
       )}
 
+      {showAddContractor && vaultId && (
+        <AddContractorModal
+          vaultId={vaultId}
+          onClose={() => setShowAddContractor(false)}
+          onAdd={() => {
+            setShowAddContractor(false);
+            fetchContractors();
+            setSuccessMsg('Contractor added successfully!');
+            setTimeout(() => setSuccessMsg(''), 3000);
+          }}
+        />
+      )}
+
       {showDeposit && (
         <DepositModal
+          vaultAddress={vaultAddress}
           onClose={() => setShowDeposit(false)}
           onDeposit={handleDeposit}
         />
       )}
+
     </div>
   );
 }
 
-function DepositModal({ onClose, onDeposit }: { onClose: () => void; onDeposit: (amount: number) => void }) {
+function DepositModal({ vaultAddress, onClose, onDeposit }: {
+  vaultAddress: `0x${string}` | null;
+  onClose: () => void;
+  onDeposit: () => void;
+}) {
+  const { deposit, isPending: loading } = useVaultDeposit(vaultAddress);
   const [amount, setAmount] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const parsed = parseFloat(amount);
     if (!parsed || parsed <= 0) return;
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      onDeposit(parsed);
-    }, 1500);
+    setError('');
+    try {
+      await deposit(parsed);
+      onDeposit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Deposit failed. Please try again.');
+    }
   };
 
   return (
@@ -227,6 +288,10 @@ function DepositModal({ onClose, onDeposit }: { onClose: () => void; onDeposit: 
             ))}
           </div>
 
+          {error && (
+            <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--red-400, #f87171)' }}>{error}</p>
+          )}
+
           <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
             <button type="button" className="btn-ghost btn-md" style={{ flex: 1 }} onClick={onClose}>
               Cancel
@@ -248,14 +313,14 @@ function DepositModal({ onClose, onDeposit }: { onClose: () => void; onDeposit: 
   );
 }
 
-function StatCard({ icon, label, value, subtext, accentBg, accentBorder }: {
-  icon: React.ReactNode; label: string; value: string; subtext: string; accentBg: string; accentBorder: string;
+function StatCard({ icon, label, value, subtext, accentBg, accentBorder, loading }: {
+  icon: React.ReactNode; label: string; value: string; subtext: string; accentBg: string; accentBorder: string; loading?: boolean;
 }) {
   return (
     <div className="glass-card" style={{ borderRadius: 14, padding: '1.5rem', background: accentBg, borderColor: accentBorder }}>
       <div style={{ width: 38, height: 38, background: 'rgba(10,22,40,0.5)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>{icon}</div>
       <div style={{ fontSize: '0.72rem', color: 'var(--slate-400)', textTransform: 'uppercase', letterSpacing: '0.07em', fontFamily: 'var(--font-syne), Syne, sans-serif', fontWeight: 600, marginBottom: '0.35rem' }}>{label}</div>
-      <div style={{ fontFamily: 'var(--font-syne), Syne, sans-serif', fontWeight: 800, fontSize: '1.65rem', color: 'var(--white)', letterSpacing: '-0.02em' }}>{value}</div>
+      <div style={{ fontFamily: 'var(--font-syne), Syne, sans-serif', fontWeight: 800, fontSize: '1.65rem', color: loading ? 'var(--slate-500)' : 'var(--white)', letterSpacing: '-0.02em' }}>{value}</div>
       <div style={{ fontSize: '0.75rem', color: 'var(--slate-400)', marginTop: '0.25rem' }}>{subtext}</div>
     </div>
   );

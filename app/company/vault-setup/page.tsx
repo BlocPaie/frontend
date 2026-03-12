@@ -3,24 +3,36 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Eye, EyeOff, Check, ArrowRight } from 'lucide-react';
+import { useAccount } from 'wagmi';
+import { useCreateVault } from '@/hooks/useCreateVault';
 import Navbar from '@/components/Navbar';
 
-type VaultType = 'simple' | 'privacy' | null;
+type VaultType = 'simple' | null;
 
 export default function VaultSetup() {
   const router = useRouter();
+  const { isConnected } = useAccount();
+  const { createERC20Vault, isPending } = useCreateVault();
   const [selected, setSelected] = useState<VaultType>(null);
-  const [deploying, setDeploying] = useState(false);
   const [done, setDone] = useState(false);
+  const [error, setError] = useState('');
 
-  const deploy = () => {
+  if (!isConnected) {
+    router.replace('/');
+    return null;
+  }
+
+  const deploy = async () => {
     if (!selected) return;
-    setDeploying(true);
-    setTimeout(() => {
-      setDeploying(false);
+    setError('');
+
+    try {
+      await createERC20Vault();
       setDone(true);
       setTimeout(() => router.push('/company/dashboard'), 1200);
-    }, 2500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Deployment failed. Please try again.');
+    }
   };
 
   return (
@@ -33,8 +45,35 @@ export default function VaultSetup() {
         </div>
 
         <div className="animate-fade-up opacity-0-init delay-100" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '2rem' }}>
-          <VaultCard type="simple" icon={<Eye size={26} color="var(--green-400)" />} title="Simple Token Vault" subtitle="ERC-20 · Public" desc="Standard USDC vault with transparent on-chain transactions. All amounts and payees are publicly visible." pros={['Easy to audit', 'Lower gas cost', 'Full transparency']} cons={['Amounts visible on-chain']} selected={selected === 'simple'} onSelect={() => setSelected('simple')} accent="var(--green-400)" accentBg="rgba(0,200,150,0.06)" accentBorder="rgba(0,200,150,0.3)" />
-          <VaultCard type="privacy" icon={<EyeOff size={26} color="#a78bfa" />} title="Privacy-Based Vault" subtitle="fhEVM · Encrypted" desc="Confidential vault using Zama's fully homomorphic encryption. Payee addresses and amounts are fully encrypted." pros={['Encrypted payees & amounts', 'Confidential payroll', 'KMS-backed security']} cons={['Higher gas cost', 'Slower execution']} selected={selected === 'privacy'} onSelect={() => setSelected('privacy')} accent="#a78bfa" accentBg="rgba(167,139,250,0.06)" accentBorder="rgba(167,139,250,0.3)" />
+          <VaultCard
+            type="simple"
+            icon={<Eye size={26} color="var(--green-400)" />}
+            title="Simple Token Vault"
+            subtitle="ERC-20 · Public"
+            desc="Standard USDC vault with transparent on-chain transactions. All amounts and payees are publicly visible."
+            pros={['Easy to audit', 'Lower gas cost', 'Full transparency']}
+            cons={['Amounts visible on-chain']}
+            selected={selected === 'simple'}
+            onSelect={() => setSelected('simple')}
+            accent="var(--green-400)"
+            accentBg="rgba(0,200,150,0.06)"
+            accentBorder="rgba(0,200,150,0.3)"
+          />
+          <VaultCard
+            type="privacy"
+            icon={<EyeOff size={26} color="#a78bfa" />}
+            title="Privacy-Based Vault"
+            subtitle="fhEVM · Coming Soon"
+            desc="Confidential vault using Zama's fully homomorphic encryption. Payee addresses and amounts are fully encrypted."
+            pros={['Encrypted payees & amounts', 'Confidential payroll', 'KMS-backed security']}
+            cons={['Higher gas cost', 'Slower execution']}
+            selected={false}
+            onSelect={() => {}}
+            accent="#a78bfa"
+            accentBg="rgba(167,139,250,0.06)"
+            accentBorder="rgba(167,139,250,0.3)"
+            disabled
+          />
         </div>
 
         {selected && (
@@ -42,7 +81,7 @@ export default function VaultSetup() {
             <div>
               <div style={{ fontSize: '0.8rem', color: 'var(--slate-300)' }}>Selected</div>
               <div style={{ fontFamily: 'var(--font-syne), Syne, sans-serif', fontWeight: 700, fontSize: '0.95rem' }}>
-                {selected === 'simple' ? 'Simple Token Vault (ERC-20)' : 'Privacy-Based Vault (fhEVM)'}
+                Simple Token Vault (ERC-20)
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--green-400)', fontSize: '0.8rem', fontWeight: 600 }}>
@@ -51,10 +90,14 @@ export default function VaultSetup() {
           </div>
         )}
 
-        <button className="btn-primary btn-lg" style={{ width: '100%', justifyContent: 'center' }} disabled={!selected || deploying || done} onClick={deploy}>
+        {error && (
+          <p style={{ margin: '0 0 1rem', fontSize: '0.82rem', color: 'var(--red-400, #f87171)', textAlign: 'center' }}>{error}</p>
+        )}
+
+        <button className="btn-primary btn-lg" style={{ width: '100%', justifyContent: 'center' }} disabled={!selected || isPending || done} onClick={deploy}>
           {done ? (
             <><Check size={18} /> Deployed! Redirecting…</>
-          ) : deploying ? (
+          ) : isPending ? (
             <>
               <span style={{ display: 'inline-block', width: 16, height: 16, border: '2px solid #050d1a', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
               Deploying vault…
@@ -64,7 +107,7 @@ export default function VaultSetup() {
           )}
         </button>
 
-        {deploying && (
+        {isPending && (
           <div style={{ marginTop: '1.5rem', padding: '1rem', borderRadius: 10, background: 'rgba(0,200,150,0.05)', border: '1px solid rgba(0,200,150,0.15)' }}>
             <div style={{ fontSize: '0.8rem', color: 'var(--slate-300)', marginBottom: '0.75rem' }}>Broadcasting to Ethereum Sepolia…</div>
             <div style={{ height: 4, borderRadius: 2, background: 'rgba(90,112,144,0.2)', overflow: 'hidden' }}>
@@ -77,12 +120,23 @@ export default function VaultSetup() {
   );
 }
 
-function VaultCard({ icon, title, subtitle, desc, pros, cons, selected, onSelect, accent, accentBg, accentBorder }: {
+function VaultCard({ icon, title, subtitle, desc, pros, cons, selected, onSelect, accent, accentBg, accentBorder, disabled }: {
   icon: React.ReactNode; title: string; subtitle: string; desc: string; pros: string[]; cons: string[];
-  selected: boolean; onSelect: () => void; accent: string; accentBg: string; accentBorder: string; type: string;
+  selected: boolean; onSelect: () => void; accent: string; accentBg: string; accentBorder: string;
+  type: string; disabled?: boolean;
 }) {
   return (
-    <button onClick={onSelect} style={{ background: selected ? accentBg : 'rgba(15,32,64,0.5)', border: `2px solid ${selected ? accentBorder : 'rgba(90,112,144,0.2)'}`, borderRadius: 16, padding: '1.5rem', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s', position: 'relative' }}>
+    <button
+      onClick={onSelect}
+      disabled={disabled}
+      style={{
+        background: selected ? accentBg : 'rgba(15,32,64,0.5)',
+        border: `2px solid ${selected ? accentBorder : 'rgba(90,112,144,0.2)'}`,
+        borderRadius: 16, padding: '1.5rem', cursor: disabled ? 'not-allowed' : 'pointer',
+        textAlign: 'left', transition: 'all 0.2s', position: 'relative',
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
       {selected && (
         <div style={{ position: 'absolute', top: 12, right: 12, width: 22, height: 22, borderRadius: '50%', background: accent, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Check size={12} color="#050d1a" strokeWidth={3} />
