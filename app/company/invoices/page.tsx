@@ -9,6 +9,7 @@ import TxHash from '@/components/TxHash';
 import { getToken, getCompanyId } from '@/lib/auth';
 import { useVaultBalance } from '@/hooks/useVaultBalance';
 import { useVaultCancelCheque } from '@/hooks/useVaultCancelCheque';
+import { useConfidentialVaultCancelCheque } from '@/hooks/useConfidentialVaultCancelCheque';
 
 const API = process.env.NEXT_PUBLIC_API_URL;
 
@@ -37,8 +38,11 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string; color: string }[] = 
 
 export default function CompanyInvoices() {
   const router = useRouter();
-  const { vaultAddress, vaultId } = useVaultBalance();
-  const { cancelCheque, cancelling } = useVaultCancelCheque(vaultAddress ?? null, vaultId ?? null);
+  const { vaultAddress, vaultId, vaultType } = useVaultBalance();
+  const isConfidential = vaultType === 'confidential';
+  const { cancelCheque: cancelErc20, cancelling: cancellingErc20 } = useVaultCancelCheque(isConfidential ? null : vaultAddress ?? null, vaultId ?? null);
+  const { cancelCheque: cancelConf, cancelling: cancellingConf } = useConfidentialVaultCancelCheque(isConfidential ? vaultAddress ?? null : null);
+  const cancelling = cancellingErc20 ?? cancellingConf;
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [cancelError, setCancelError] = useState('');
@@ -98,7 +102,9 @@ export default function CompanyInvoices() {
     try {
       if (inv.chequeId) {
         // Registered on-chain — cancel on-chain then confirm
-        const { txHash } = await cancelCheque(inv._id, inv.contractorId, inv.chequeId);
+        const { txHash } = isConfidential
+          ? await cancelConf(inv._id, inv.chequeId)
+          : await cancelErc20(inv._id, inv.contractorId, inv.chequeId);
         setInvoices(prev => prev.map(i => i._id === inv._id ? { ...i, status: 'cancelled', txHash } : i));
       } else {
         // Not yet registered on-chain — off-chain cancel only
