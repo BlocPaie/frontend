@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useAccount, useConfig } from 'wagmi'
-import { readContract } from '@wagmi/core'
+import { readContract, writeContract, waitForTransactionReceipt } from '@wagmi/core'
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import ConfidentialVaultABI from '@/lib/abis/ConfidentialVault.json'
 import { getFhevmInstance } from '@/lib/fhevm'
 
@@ -13,7 +14,6 @@ export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) 
   const [decrypting, setDecrypting] = useState(false)
   const [error, setError] = useState('')
 
-  // Clear cached values when vault address changes
   useEffect(() => {
     setTotalBalance(null)
     setAllocatedBalance(null)
@@ -25,7 +25,23 @@ export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) 
     setDecrypting(true)
     setError('')
     try {
-      // 1. Read both encrypted handles from the contract
+      // 1. Generate ephemeral secp256k1 key — lives in memory only, discarded after use.
+      //    Never stored anywhere; each decrypt session uses a fresh key.
+      const secp256k1Key = generatePrivateKey()
+      const decryptAccount = privateKeyToAccount(secp256k1Key)
+
+      // 2. Grant the ephemeral address ACL access on the current encrypted handles.
+      //    One Porto passkey tap — required because Porto signs with WebAuthn P256
+      //    which Zama's ECDSA recovery cannot validate.
+      const hash = await writeContract(config, {
+        address: vaultAddress,
+        abi: ConfidentialVaultABI as never[],
+        functionName: 'grantDecryptAccess',
+        args: [decryptAccount.address],
+      })
+      await waitForTransactionReceipt(config, { hash })
+
+      // 3. Read both encrypted handles from the contract
       const [vaultBalHandle, allocHandle] = await Promise.all([
         readContract(config, {
           address: vaultAddress,
@@ -42,39 +58,24 @@ export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) 
       const balHandle = vaultBalHandle as `0x${string}`
       const allocBal = allocHandle as `0x${string}`
 
-      // 2. Initialise SDK, generate a fresh ephemeral keypair
+      // 4. Initialise Zama SDK, generate ephemeral NaCl keypair for re-encryption
       const instance = await getFhevmInstance()
       const { publicKey, privateKey } = instance.generateKeypair()
       const startTimestamp = Math.floor(Date.now() / 1000)
       const durationDays = 10
 
-      // 3. Build EIP-712 typed data
+      // 5. Sign EIP-712 locally with the secp256k1 key — no Porto dialog, no passkey
       const eip712 = instance.createEIP712(publicKey, [vaultAddress], startTimestamp, durationDays)
-
-      // 4. Sign via Porto's raw EIP-1193 provider directly
-      //    wagmi's walletClient wraps Porto and returns a 4036-char WebAuthn P256 blob.
-      //    The connector's getProvider() returns Porto's own provider which should give
-      //    a standard secp256k1 signature.
-      const portoConnector = config.connectors.find(c => c.id === 'xyz.ithaca.porto')
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const portoProvider = await (portoConnector as any).getProvider()
-      const typedData = {
+      const rawSig = await decryptAccount.signTypedData({
         domain: eip712.domain,
         types: { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
         primaryType: 'UserDecryptRequestVerification',
         message: eip712.message,
-      }
-      let rawSig = await portoProvider.request({
-        method: 'eth_signTypedData_v4',
-        params: [address, JSON.stringify(typedData, (_, v) => typeof v === 'bigint' ? v.toString() : v)],
-      })
-      console.log('[decrypt] raw signature from Porto:', rawSig)
-      rawSig = rawSig as `0x${string}`
-      console.log('[decrypt] rawSig length:', rawSig.length, '(expect 132 for secp256k1)')
-      // Zama relayer expects signature without 0x prefix
+      } as any)
       const signature = rawSig.replace('0x', '')
 
-      // 5. KMS decryption — both handles decrypted in one round-trip
+      // 6. Zama KMS decryption — userAddress is the ephemeral secp256k1 address
       const results = await instance.userDecrypt(
         [
           { handle: balHandle, contractAddress: vaultAddress },
@@ -84,7 +85,7 @@ export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) 
         publicKey,
         signature,
         [vaultAddress],
-        address,
+        decryptAccount.address,
         startTimestamp,
         durationDays,
       )

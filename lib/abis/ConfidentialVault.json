@@ -330,6 +330,15 @@
     "type": "function"
   },
   {
+    "inputs": [
+      { "internalType": "address", "name": "viewer", "type": "address" }
+    ],
+    "name": "grantDecryptAccess",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "getChequeCount",
     "outputs": [
