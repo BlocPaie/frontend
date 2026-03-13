@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
-import { useAccount, useSignTypedData, useConfig } from 'wagmi'
+import { useAccount, useWalletClient, useConfig } from 'wagmi'
 import { readContract } from '@wagmi/core'
 import ConfidentialVaultABI from '@/lib/abis/ConfidentialVault.json'
 import { getFhevmInstance } from '@/lib/fhevm'
 
 export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) {
   const { address } = useAccount()
-  const { mutateAsync: signTypedDataAsync } = useSignTypedData()
+  const { data: walletClient } = useWalletClient()
   const config = useConfig()
 
   const [totalBalance, setTotalBalance] = useState<number | null>(null)
@@ -22,7 +22,7 @@ export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) 
   }, [vaultAddress])
 
   const decrypt = async () => {
-    if (!vaultAddress || !address) return
+    if (!vaultAddress || !address || !walletClient) return
     setDecrypting(true)
     setError('')
     try {
@@ -49,26 +49,27 @@ export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) 
       const startTimestamp = Math.floor(Date.now() / 1000)
       const durationDays = 10
 
-      // 3. Build EIP-712 and sign with passkey — one tap covers both handles
-      // Must pass only UserDecryptRequestVerification type (not full eip712.types)
-      // to match what the Zama relayer expects — mirrors the SDK's own signer.signTypedData call
+      // 3. Build EIP-712 typed data
       const eip712 = instance.createEIP712(publicKey, [vaultAddress], startTimestamp, durationDays)
-      const replacer = (_: string, v: unknown) => typeof v === 'bigint' ? v.toString() : v
-      console.log('[decrypt] eip712 domain:', JSON.stringify(eip712.domain, replacer))
-      console.log('[decrypt] eip712 message:', JSON.stringify(eip712.message, replacer))
-      console.log('[decrypt] userAddress:', address)
-      const rawSig = await signTypedDataAsync({
+
+      // 4. Sign via Porto's provider directly using eth_signTypedData_v4
+      //    This bypasses wagmi's connector abstraction which was returning a wrapped
+      //    WebAuthn P256 blob (4036 chars) instead of a secp256k1 signature (132 chars).
+      const typedData = {
         domain: eip712.domain,
         types: { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
         primaryType: 'UserDecryptRequestVerification',
         message: eip712.message,
-      } as never)
+      }
+      const rawSig = await walletClient.request({
+        method: 'eth_signTypedData_v4',
+        params: [address, JSON.stringify(typedData)],
+      }) as `0x${string}`
       console.log('[decrypt] rawSig length:', rawSig.length, '(expect 132 for secp256k1)')
-      console.log('[decrypt] rawSig:', rawSig)
       // Zama relayer expects signature without 0x prefix
       const signature = rawSig.replace('0x', '')
 
-      // 4. KMS decryption — both handles decrypted in one round-trip
+      // 5. KMS decryption — both handles decrypted in one round-trip
       const results = await instance.userDecrypt(
         [
           { handle: balHandle, contractAddress: vaultAddress },
