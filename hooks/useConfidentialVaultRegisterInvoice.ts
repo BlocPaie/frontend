@@ -15,23 +15,15 @@ export function useConfidentialVaultRegisterInvoice(vaultAddress: `0x${string}` 
   const config = useConfig()
   const [isPending, setIsPending] = useState(false)
 
+  // invoiceHash: pre-computed client-side — no backend hash fetch needed
   // contractorAddress: the contractor's Porto account address (used as the encrypted payee)
-  async function registerInvoice(invoiceId: string, contractorAddress: string, amount: string) {
+  async function registerInvoice(invoiceHash: `0x${string}`, contractorAddress: string, amount: string) {
     if (!vaultAddress || !vaultId || !address) throw new Error('No vault connected')
     setIsPending(true)
     try {
-      const token = getToken()
-
-      // 1. Get invoice hash from backend
-      const hashRes = await fetch(`${API}/api/invoices/${invoiceId}/hash`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!hashRes.ok) throw new Error('Failed to fetch invoice hash')
-      const { data: hashData } = await hashRes.json()
-
       const amountScaled = BigInt(Math.round(parseFloat(amount) * 1_000_000))
 
-      // 2. Two separate encrypted inputs — contract requires separate proofs per value
+      // 1. Two separate encrypted inputs — contract requires separate proofs per value
       const instance = await getFhevmInstance()
       const contractVault = getAddress(vaultAddress)
       const caller = getAddress(address)
@@ -44,7 +36,7 @@ export function useConfidentialVaultRegisterInvoice(vaultAddress: `0x${string}` 
       amountInput.add64(amountScaled)
       const { handles: amountHandles, inputProof: amountProof } = await amountInput.encrypt()
 
-      // 3. Submit on-chain
+      // 2. Submit on-chain with pre-computed hash
       const { id } = await sendCallsAsync({
         calls: [{
           to: vaultAddress,
@@ -52,7 +44,7 @@ export function useConfidentialVaultRegisterInvoice(vaultAddress: `0x${string}` 
             abi: ConfidentialVaultABI,
             functionName: 'registerInvoice',
             args: [
-              hashData.invoiceHash as `0x${string}`,
+              invoiceHash,
               toHex(payeeHandles[0], { size: 32 }),
               toHex(payeeProof),
               toHex(amountHandles[0], { size: 32 }),
@@ -63,7 +55,7 @@ export function useConfidentialVaultRegisterInvoice(vaultAddress: `0x${string}` 
         capabilities: { merchantUrl: MERCHANT_URL } as never,
       })
 
-      // 4. Wait for confirmation and parse ChequeCreated event
+      // 3. Wait for confirmation and parse ChequeCreated event
       const result = await waitForCallsStatus(config, { id })
       const receipt = result.receipts?.[0]
       if (!receipt) throw new Error('No receipt in call bundle result')
@@ -76,22 +68,7 @@ export function useConfidentialVaultRegisterInvoice(vaultAddress: `0x${string}` 
       if (!logs.length) throw new Error('ChequeCreated event not found in receipt')
       const chequeId = String((logs[0] as unknown as { args: { chequeId: bigint } }).args.chequeId)
 
-      // 5. Confirm registration in backend
-      const confirmRes = await fetch(`${API}/api/invoices/${invoiceId}/confirm-registration`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          txHash: receipt.transactionHash,
-          blockNumber: Number(receipt.blockNumber),
-          chequeId,
-          vaultAddress,
-        }),
-      })
-      if (!confirmRes.ok && confirmRes.status !== 409) {
-        throw new Error('Failed to confirm registration in backend')
-      }
-
-      return { chequeId, txHash: receipt.transactionHash }
+      return { chequeId, txHash: receipt.transactionHash as string, blockNumber: Number(receipt.blockNumber) }
     } finally {
       setIsPending(false)
     }

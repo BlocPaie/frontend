@@ -13,7 +13,8 @@ export function useVaultRegisterInvoice(vaultAddress: `0x${string}` | null, vaul
   const config = useConfig()
   const [isPending, setIsPending] = useState(false)
 
-  async function registerInvoice(invoiceId: string, contractorId: string, amount: string) {
+  // invoiceHash: pre-computed client-side — no backend hash fetch needed
+  async function registerInvoice(invoiceHash: `0x${string}`, contractorId: string, amount: string) {
     if (!vaultAddress || !vaultId) throw new Error('No vault connected')
     setIsPending(true)
     try {
@@ -27,35 +28,27 @@ export function useVaultRegisterInvoice(vaultAddress: `0x${string}` | null, vaul
       if (!mappingRes.ok) throw new Error('Address mapping not found — add the contractor first')
       const { data: mapping } = await mappingRes.json()
 
-      // 2. Get invoice hash from backend (do not recompute locally)
-      const hashRes = await fetch(`${API}/api/invoices/${invoiceId}/hash`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      if (!hashRes.ok) throw new Error('Failed to fetch invoice hash')
-      const { data: hashData } = await hashRes.json()
-
-      // 3. Scale amount to USDC 6-decimal uint128
       const amountScaled = BigInt(Math.round(parseFloat(amount) * 1_000_000))
 
-      // 4. Encode and submit on-chain
+      // 2. Submit on-chain with pre-computed hash
       const { id } = await sendCallsAsync({
         calls: [{
           to: vaultAddress,
           data: encodeFunctionData({
             abi: ERC20VaultABI,
             functionName: 'registerInvoice',
-            args: [hashData.invoiceHash as `0x${string}`, mapping.freshAddress as `0x${string}`, amountScaled],
+            args: [invoiceHash, mapping.freshAddress as `0x${string}`, amountScaled],
           }),
         }],
         capabilities: { merchantUrl: MERCHANT_URL } as never,
       })
 
-      // 5. Wait for confirmation
+      // 3. Wait for confirmation
       const result = await waitForCallsStatus(config, { id })
       const receipt = result.receipts?.[0]
       if (!receipt) throw new Error('No receipt in call bundle result')
 
-      // 6. Parse ChequeCreated event → chequeId
+      // 4. Parse ChequeCreated event → chequeId
       const logs = parseEventLogs({
         abi: ERC20VaultABI as never[],
         eventName: 'ChequeCreated',
@@ -64,23 +57,7 @@ export function useVaultRegisterInvoice(vaultAddress: `0x${string}` | null, vaul
       if (!logs.length) throw new Error('ChequeCreated event not found in receipt')
       const chequeId = String((logs[0] as unknown as { args: { chequeId: bigint } }).args.chequeId)
 
-      // 7. Confirm registration in backend
-      const confirmRes = await fetch(`${API}/api/invoices/${invoiceId}/confirm-registration`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          txHash: receipt.transactionHash,
-          blockNumber: Number(receipt.blockNumber),
-          chequeId,
-          vaultAddress,
-        }),
-      })
-      // 409 = already confirmed (idempotent), treat as success
-      if (!confirmRes.ok && confirmRes.status !== 409) {
-        throw new Error('Failed to confirm registration in backend')
-      }
-
-      return { chequeId, txHash: receipt.transactionHash }
+      return { chequeId, txHash: receipt.transactionHash as string, blockNumber: Number(receipt.blockNumber) }
     } finally {
       setIsPending(false)
     }

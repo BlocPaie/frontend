@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { useVaultRegisterInvoice } from '@/hooks/useVaultRegisterInvoice';
 import { useConfidentialVaultRegisterInvoice } from '@/hooks/useConfidentialVaultRegisterInvoice';
-import { getToken } from '@/lib/auth';
+import { generateObjectId, computeInvoiceHash } from '@/lib/invoiceHash';
+import { getToken, getCompanyId } from '@/lib/auth';
 
 const API = process.env.NEXT_PUBLIC_API_URL;
 
@@ -36,42 +37,43 @@ export default function RegisterInvoiceModal({ contractor, vaultId, vaultAddress
     setError('');
 
     try {
-      // 1. Create invoice in DB
-      const res = await fetch(`${API}/api/invoices`, {
+      // 1. Generate invoice ID and hash entirely client-side
+      const invoiceId = generateObjectId();
+      const companyId = getCompanyId()!;
+      const issuedAt = new Date();
+      const scaledAmount = parseFloat(amount).toFixed(2);
+      const invoiceHash = computeInvoiceHash(invoiceId, companyId, contractor._id, scaledAmount, issuedAt);
+
+      // 2. Register on-chain — tx confirms before any backend call is made
+      const { chequeId, txHash, blockNumber } = isConfidential
+        ? await registerConf(invoiceHash, contractor.portoAccountAddress, scaledAmount)
+        : await registerErc20(invoiceHash, contractor._id, scaledAmount);
+
+      // 3. Create invoice in DB (only reached if tx succeeded)
+      const createRes = await fetch(`${API}/api/invoices`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({
+          _id: invoiceId,
           contractorId: contractor._id,
           vaultId,
-          amount: parseFloat(amount).toFixed(2),
+          amount: scaledAmount,
           currency: 'USDC',
-          issuedAt: new Date().toISOString(),
+          issuedAt: issuedAt.toISOString(),
         }),
       });
-
-      if (!res.ok) {
-        const body = await res.json();
-        setError(body?.error?.message ?? 'Failed to create invoice.');
-        return;
+      if (!createRes.ok) {
+        const body = await createRes.json();
+        throw new Error(body?.error?.message ?? 'Failed to create invoice.');
       }
+      const { data: invoice } = await createRes.json();
 
-      const { data: invoice } = await res.json();
-
-      // 2. Register on-chain + confirm
-      try {
-        if (isConfidential) {
-          await registerConf(invoice._id, contractor.portoAccountAddress, invoice.amount);
-        } else {
-          await registerErc20(invoice._id, contractor._id, invoice.amount);
-        }
-      } catch (err) {
-        // On-chain step failed — cancel the orphan invoice so the DB stays clean
-        await fetch(`${API}/api/invoices/${invoice._id}/cancel`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${getToken()}` },
-        }).catch(() => {}) // best-effort, don't mask the original error
-        throw err
-      }
+      // 4. Confirm registration (links chequeId + txHash to the invoice)
+      await fetch(`${API}/api/invoices/${invoice._id}/confirm-registration`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ txHash, blockNumber, chequeId, vaultAddress }),
+      });
 
       onSubmit();
     } catch (err) {
