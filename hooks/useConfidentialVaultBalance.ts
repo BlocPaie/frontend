@@ -46,9 +46,8 @@ export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) 
       // 2. Initialise SDK, generate a fresh ephemeral keypair
       const instance = await getFhevmInstance()
       const { publicKey, privateKey } = instance.generateKeypair()
-      // startTimestamp and durationDays must be strings per SDK docs
-      const startTimestamp = Math.floor(Date.now() / 1000).toString()
-      const durationDays = '10'
+      const startTimestamp = Math.floor(Date.now() / 1000)
+      const durationDays = 10
 
       // 3. Build EIP-712 and sign with passkey — one tap covers both handles
       // Must pass only UserDecryptRequestVerification type (not full eip712.types)
