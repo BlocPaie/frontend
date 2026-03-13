@@ -58,10 +58,19 @@ export default function RegisterInvoiceModal({ contractor, vaultId, vaultAddress
       const { data: invoice } = await res.json();
 
       // 2. Register on-chain + confirm
-      if (isConfidential) {
-        await registerConf(invoice._id, contractor.portoAccountAddress, invoice.amount);
-      } else {
-        await registerErc20(invoice._id, contractor._id, invoice.amount);
+      try {
+        if (isConfidential) {
+          await registerConf(invoice._id, contractor.portoAccountAddress, invoice.amount);
+        } else {
+          await registerErc20(invoice._id, contractor._id, invoice.amount);
+        }
+      } catch (err) {
+        // On-chain step failed — cancel the orphan invoice so the DB stays clean
+        await fetch(`${API}/api/invoices/${invoice._id}/cancel`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${getToken()}` },
+        }).catch(() => {}) // best-effort, don't mask the original error
+        throw err
       }
 
       onSubmit();
