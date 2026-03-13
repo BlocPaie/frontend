@@ -6,6 +6,7 @@ import Navbar from '@/components/Navbar';
 import TxHash from '@/components/TxHash';
 import { getContractorId, getToken } from '@/lib/auth';
 import { useVaultExecuteCheque } from '@/hooks/useVaultExecuteCheque';
+import { useConfidentialVaultExecuteCheque } from '@/hooks/useConfidentialVaultExecuteCheque';
 
 const API = process.env.NEXT_PUBLIC_API_URL;
 
@@ -13,6 +14,7 @@ interface Invoice {
   _id: string;
   companyId: string;
   vaultAddress: string | null;
+  vaultType: string | null;
   amount: string;
   issuedAt: string;
   status: 'pending' | 'executed' | 'cancelled';
@@ -26,7 +28,9 @@ export default function ContractorDashboard() {
   const [loading, setLoading] = useState(true);
   const [idCopied, setIdCopied] = useState(false);
   const [error, setError] = useState('');
-  const { executeCheque, executing } = useVaultExecuteCheque();
+  const { executeCheque: executeErc20, executing: executingErc20 } = useVaultExecuteCheque();
+  const { executeCheque: executeConf, executing: executingConf } = useConfidentialVaultExecuteCheque();
+  const executing = executingErc20 ?? executingConf;
 
   useEffect(() => {
     const token = getToken();
@@ -44,6 +48,7 @@ export default function ContractorDashboard() {
             _id: inv._id as string,
             companyId: inv.companyId as string,
             vaultAddress: registerTx?.vaultAddress ?? null,
+            vaultType: (inv.vaultType as string | undefined) ?? null,
             amount: inv.amount as string,
             issuedAt: inv.issuedAt as string,
             status: inv.status as Invoice['status'],
@@ -70,7 +75,8 @@ export default function ContractorDashboard() {
     if (!inv.vaultAddress || inv.chequeId == null) return;
     setError('');
     try {
-      const { txHash } = await executeCheque(inv._id, inv.vaultAddress as `0x${string}`, parseInt(inv.chequeId, 10));
+      const fn = inv.vaultType === 'confidential' ? executeConf : executeErc20;
+      const { txHash } = await fn(inv._id, inv.vaultAddress as `0x${string}`, parseInt(inv.chequeId, 10));
       setInvoices(prev => prev.map(i =>
         i._id === inv._id ? { ...i, status: 'executed', txHash } : i
       ));
