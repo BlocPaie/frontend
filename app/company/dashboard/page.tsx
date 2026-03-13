@@ -10,6 +10,7 @@ import AddContractorModal from '@/components/AddContractorModal';
 import { useVaultBalance } from '@/hooks/useVaultBalance';
 import { useVaultDeposit } from '@/hooks/useVaultDeposit';
 import { useConfidentialVaultBalance } from '@/hooks/useConfidentialVaultBalance';
+import { useConfidentialVaultDeposit } from '@/hooks/useConfidentialVaultDeposit';
 import { getToken, getCompanyId } from '@/lib/auth';
 
 const API = process.env.NEXT_PUBLIC_API_URL;
@@ -62,7 +63,11 @@ export default function CompanyDashboard() {
 
   const handleDeposit = () => {
     setShowDeposit(false);
-    refetchBalances();
+    if (isConfidential) {
+      decrypt();
+    } else {
+      refetchBalances();
+    }
     setSuccessMsg('Funds deposited successfully!');
     setTimeout(() => setSuccessMsg(''), 3000);
   };
@@ -225,6 +230,7 @@ export default function CompanyDashboard() {
       {showDeposit && (
         <DepositModal
           vaultAddress={vaultAddress}
+          vaultType={vaultType}
           onClose={() => setShowDeposit(false)}
           onDeposit={handleDeposit}
         />
@@ -234,12 +240,18 @@ export default function CompanyDashboard() {
   );
 }
 
-function DepositModal({ vaultAddress, onClose, onDeposit }: {
+function DepositModal({ vaultAddress, vaultType, onClose, onDeposit }: {
   vaultAddress: `0x${string}` | null;
+  vaultType: string | null;
   onClose: () => void;
   onDeposit: () => void;
 }) {
-  const { deposit, isPending: loading } = useVaultDeposit(vaultAddress);
+  const { address } = useAccount();
+  const isConfidential = vaultType === 'confidential';
+  const { deposit: depositErc20, isPending: pendingErc20 } = useVaultDeposit(isConfidential ? null : vaultAddress);
+  const { deposit: depositConf, isPending: pendingConf } = useConfidentialVaultDeposit(isConfidential ? vaultAddress : null);
+  const deposit = isConfidential ? depositConf : depositErc20;
+  const loading = isConfidential ? pendingConf : pendingErc20;
   const [amount, setAmount] = useState('');
   const [error, setError] = useState('');
 
@@ -267,7 +279,7 @@ function DepositModal({ vaultAddress, onClose, onDeposit }: {
           <div>
             <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700 }}>Deposit Funds</h3>
             <p style={{ margin: '0.3rem 0 0', fontSize: '0.82rem', color: 'var(--slate-300)' }}>
-              Add USDC to your vault on Sepolia
+              {isConfidential ? 'Wrap USDC → cUSDC and deposit into your vault' : 'Add USDC to your vault on Sepolia'}
             </p>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--slate-400)', padding: 4, borderRadius: 6 }}>
@@ -278,8 +290,18 @@ function DepositModal({ vaultAddress, onClose, onDeposit }: {
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
           <div>
             <label className="form-label">Vault</label>
-            <input className="form-input" value="Acme Corp — Simple Token Vault" disabled />
+            <input className="form-input" value={isConfidential ? 'Privacy-Based Vault (cUSDC)' : 'Simple Token Vault (USDC)'} disabled />
           </div>
+          <div style={{ padding: '0.75rem 1rem', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.2)', borderRadius: 10, fontSize: '0.8rem', color: 'var(--slate-300)', lineHeight: 1.5 }}>
+            <span style={{ fontWeight: 600, color: 'var(--slate-200)' }}>Before depositing</span>, make sure your Porto account has enough USDC.
+            {address && (
+              <div style={{ marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                <span style={{ color: 'var(--slate-400)', fontSize: '0.75rem' }}>Your address:</span>
+                <span className="mono" style={{ fontSize: '0.72rem', color: 'var(--slate-300)', wordBreak: 'break-all' }}>{address}</span>
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="form-label">Amount (USDC)</label>
             <div style={{ position: 'relative' }}>
