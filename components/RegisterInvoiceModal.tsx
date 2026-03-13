@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
 import { useVaultRegisterInvoice } from '@/hooks/useVaultRegisterInvoice';
+import { useConfidentialVaultRegisterInvoice } from '@/hooks/useConfidentialVaultRegisterInvoice';
 import { getToken } from '@/lib/auth';
 
 const API = process.env.NEXT_PUBLIC_API_URL;
@@ -17,12 +18,16 @@ interface Props {
   contractor: Contractor;
   vaultId: string;
   vaultAddress: `0x${string}`;
+  vaultType: string | null;
   onClose: () => void;
   onSubmit: () => void;
 }
 
-export default function RegisterInvoiceModal({ contractor, vaultId, vaultAddress, onClose, onSubmit }: Props) {
-  const { registerInvoice, isPending } = useVaultRegisterInvoice(vaultAddress, vaultId);
+export default function RegisterInvoiceModal({ contractor, vaultId, vaultAddress, vaultType, onClose, onSubmit }: Props) {
+  const isConfidential = vaultType === 'confidential';
+  const { registerInvoice: registerErc20, isPending: pendingErc20 } = useVaultRegisterInvoice(isConfidential ? null : vaultAddress, vaultId);
+  const { registerInvoice: registerConf, isPending: pendingConf } = useConfidentialVaultRegisterInvoice(isConfidential ? vaultAddress : null, vaultId);
+  const isPending = isConfidential ? pendingConf : pendingErc20;
   const [amount, setAmount] = useState('');
   const [error, setError] = useState('');
 
@@ -52,8 +57,12 @@ export default function RegisterInvoiceModal({ contractor, vaultId, vaultAddress
 
       const { data: invoice } = await res.json();
 
-      // 2. Register on-chain + confirm (Steps 13)
-      await registerInvoice(invoice._id, contractor._id, invoice.amount);
+      // 2. Register on-chain + confirm
+      if (isConfidential) {
+        await registerConf(invoice._id, contractor.portoAccountAddress, invoice.amount);
+      } else {
+        await registerErc20(invoice._id, contractor._id, invoice.amount);
+      }
 
       onSubmit();
     } catch (err) {

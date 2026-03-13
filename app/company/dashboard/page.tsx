@@ -209,6 +209,7 @@ export default function CompanyDashboard() {
           contractor={invoiceTarget}
           vaultId={vaultId}
           vaultAddress={vaultAddress}
+          vaultType={vaultType}
           onClose={() => setInvoiceTarget(null)}
           onSubmit={handleInvoiceSubmit}
         />
