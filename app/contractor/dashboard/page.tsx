@@ -7,6 +7,8 @@ import TxHash from '@/components/TxHash';
 import { getContractorId, getToken } from '@/lib/auth';
 import { useVaultExecuteCheque } from '@/hooks/useVaultExecuteCheque';
 import { useConfidentialVaultExecuteCheque } from '@/hooks/useConfidentialVaultExecuteCheque';
+import { useConfig } from 'wagmi';
+import { readContract } from '@wagmi/core';
 
 const API = process.env.NEXT_PUBLIC_API_URL;
 
@@ -24,6 +26,7 @@ interface Invoice {
 
 export default function ContractorDashboard() {
   const contractorId = getContractorId() ?? '';
+  const config = useConfig();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [idCopied, setIdCopied] = useState(false);
@@ -38,7 +41,7 @@ export default function ContractorDashboard() {
 
     fetch(`${API}/api/invoices`, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => r.json())
-      .then(body => {
+      .then(async body => {
         type RawTx = { txHash: string; vaultAddress: string; txType: string };
         const mapped: Invoice[] = (body.data?.invoices ?? []).map((inv: Record<string, unknown>) => {
           const txs = (inv.transactions as RawTx[]) ?? [];
@@ -56,7 +59,30 @@ export default function ContractorDashboard() {
             txHash: latestTx?.txHash,
           };
         });
-        setInvoices(mapped);
+
+        // If the backend didn't return vaultType, detect it on-chain.
+        // confidentialProtocolId() only exists on ConfidentialVault — use it as a probe.
+        const unknownAddresses = [...new Set(
+          mapped.filter(i => !i.vaultType && i.vaultAddress).map(i => i.vaultAddress!)
+        )];
+        const typeMap: Record<string, string> = {};
+        await Promise.all(unknownAddresses.map(async addr => {
+          try {
+            await readContract(config, {
+              address: addr as `0x${string}`,
+              abi: [{ name: 'confidentialProtocolId', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256', name: '' }] }],
+              functionName: 'confidentialProtocolId',
+            });
+            typeMap[addr] = 'confidential';
+          } catch {
+            typeMap[addr] = 'erc20';
+          }
+        }));
+
+        setInvoices(mapped.map(i => ({
+          ...i,
+          vaultType: i.vaultType ?? (i.vaultAddress ? typeMap[i.vaultAddress] ?? null : null),
+        })));
       })
       .catch(() => {})
       .finally(() => setLoading(false));
