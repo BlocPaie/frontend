@@ -64,10 +64,12 @@ export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) 
         primaryType: 'UserDecryptRequestVerification',
         message: eip712.message,
       }
-      const rawSig = await portoProvider.request({
+      let rawSig = await portoProvider.request({
         method: 'eth_signTypedData_v4',
         params: [address, JSON.stringify(typedData, (_, v) => typeof v === 'bigint' ? v.toString() : v)],
-      }) as `0x${string}`
+      })
+      console.log('[decrypt] raw signature from Porto:', rawSig)
+      rawSig = rawSig as `0x${string}`
       console.log('[decrypt] rawSig length:', rawSig.length, '(expect 132 for secp256k1)')
       // Zama relayer expects signature without 0x prefix
       const signature = rawSig.replace('0x', '')
