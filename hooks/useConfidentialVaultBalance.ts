@@ -46,19 +46,22 @@ export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) 
       // 2. Initialise SDK, generate a fresh ephemeral keypair
       const instance = await getFhevmInstance()
       const { publicKey, privateKey } = instance.generateKeypair()
-      const startTimestamp = Math.floor(Date.now() / 1000)
-      const durationDays = 10
+      // startTimestamp and durationDays must be strings per SDK docs
+      const startTimestamp = Math.floor(Date.now() / 1000).toString()
+      const durationDays = '10'
 
       // 3. Build EIP-712 and sign with passkey — one tap covers both handles
       // Must pass only UserDecryptRequestVerification type (not full eip712.types)
       // to match what the Zama relayer expects — mirrors the SDK's own signer.signTypedData call
       const eip712 = instance.createEIP712(publicKey, [vaultAddress], startTimestamp, durationDays)
-      const signature = await signTypedDataAsync({
+      const rawSig = await signTypedDataAsync({
         domain: eip712.domain,
         types: { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
         primaryType: 'UserDecryptRequestVerification',
         message: eip712.message,
       } as never)
+      // Zama relayer expects signature without 0x prefix
+      const signature = rawSig.replace('0x', '')
 
       // 4. KMS decryption — both handles decrypted in one round-trip
       const results = await instance.userDecrypt(
