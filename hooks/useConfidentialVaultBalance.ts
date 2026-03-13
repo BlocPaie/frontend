@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react'
-import { useAccount, useWalletClient, useConfig } from 'wagmi'
+import { useAccount, useConfig } from 'wagmi'
 import { readContract } from '@wagmi/core'
 import ConfidentialVaultABI from '@/lib/abis/ConfidentialVault.json'
 import { getFhevmInstance } from '@/lib/fhevm'
 
 export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) {
   const { address } = useAccount()
-  const { data: walletClient } = useWalletClient()
   const config = useConfig()
 
   const [totalBalance, setTotalBalance] = useState<number | null>(null)
@@ -22,7 +21,7 @@ export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) 
   }, [vaultAddress])
 
   const decrypt = async () => {
-    if (!vaultAddress || !address || !walletClient) return
+    if (!vaultAddress || !address) return
     setDecrypting(true)
     setError('')
     try {
@@ -52,16 +51,20 @@ export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) 
       // 3. Build EIP-712 typed data
       const eip712 = instance.createEIP712(publicKey, [vaultAddress], startTimestamp, durationDays)
 
-      // 4. Sign via Porto's provider directly using eth_signTypedData_v4
-      //    This bypasses wagmi's connector abstraction which was returning a wrapped
-      //    WebAuthn P256 blob (4036 chars) instead of a secp256k1 signature (132 chars).
+      // 4. Sign via Porto's raw EIP-1193 provider directly
+      //    wagmi's walletClient wraps Porto and returns a 4036-char WebAuthn P256 blob.
+      //    The connector's getProvider() returns Porto's own provider which should give
+      //    a standard secp256k1 signature.
+      const portoConnector = config.connectors.find(c => c.id === 'xyz.ithaca.porto')
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const portoProvider = await (portoConnector as any).getProvider()
       const typedData = {
         domain: eip712.domain,
         types: { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
         primaryType: 'UserDecryptRequestVerification',
         message: eip712.message,
       }
-      const rawSig = await walletClient.request({
+      const rawSig = await portoProvider.request({
         method: 'eth_signTypedData_v4',
         params: [address, JSON.stringify(typedData, (_, v) => typeof v === 'bigint' ? v.toString() : v)],
       }) as `0x${string}`
