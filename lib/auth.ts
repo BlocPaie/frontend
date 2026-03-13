@@ -1,6 +1,7 @@
 const JWT_KEY = 'blocpaie_jwt'
 const COMPANY_ID_KEY = 'blocpaie_company_id'
 const CONTRACTOR_ID_KEY = 'blocpaie_contractor_id'
+const VAULT_TYPE_KEY = 'blocpaie_vault_type'
 
 function ss(): Storage | null {
   if (typeof window === 'undefined') return null
@@ -21,6 +22,16 @@ export function storeContractorId(id: string) {
 
 export function getContractorId(): string | null {
   return ss()?.getItem(CONTRACTOR_ID_KEY) ?? null
+}
+
+export function storeVaultType(type: 'erc20' | 'confidential') {
+  ss()?.setItem(VAULT_TYPE_KEY, type)
+}
+
+export function getVaultType(): 'erc20' | 'confidential' | null {
+  const v = ss()?.getItem(VAULT_TYPE_KEY)
+  if (v === 'erc20' || v === 'confidential') return v
+  return null
 }
 
 export function storeToken(token: string) {

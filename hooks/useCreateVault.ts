@@ -3,8 +3,8 @@ import { useSendCalls, useConfig } from 'wagmi'
 import { waitForCallsStatus } from '@wagmi/core'
 import { encodeFunctionData, parseEventLogs } from 'viem'
 import VaultFactoryABI from '@/lib/abis/VaultFactory.json'
-import { VAULT_FACTORY_ADDRESS, ERC20_VAULT_TYPE, USDC_ADDRESS } from '@/lib/constants'
-import { getToken, getCompanyId } from '@/lib/auth'
+import { VAULT_FACTORY_ADDRESS, ERC20_VAULT_TYPE, USDC_ADDRESS, CONFIDENTIAL_VAULT_TYPE, CONFIDENTIAL_USDC_ADDRESS } from '@/lib/constants'
+import { getToken, getCompanyId, storeVaultType } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 
@@ -67,11 +67,67 @@ export function useCreateVault() {
         throw new Error(body?.error?.message ?? 'Failed to register vault')
       }
 
+      storeVaultType('erc20')
       return { vaultAddress, blockNumber, txHash: receipt.transactionHash }
     } finally {
       setIsPending(false)
     }
   }
 
-  return { createERC20Vault, isPending }
+  async function createConfidentialVault() {
+    setIsPending(true)
+    try {
+      const calldata = encodeFunctionData({
+        abi: VaultFactoryABI,
+        functionName: 'createVault',
+        args: [CONFIDENTIAL_VAULT_TYPE, CONFIDENTIAL_USDC_ADDRESS],
+      })
+
+      const { id } = await sendCallsAsync({
+        calls: [{ to: VAULT_FACTORY_ADDRESS, data: calldata }],
+        capabilities: {
+          merchantUrl: process.env.NEXT_PUBLIC_MERCHANT_URL ?? '/api/porto/merchant',
+        } as never,
+      })
+
+      const result = await waitForCallsStatus(config, { id })
+      const receipt = result.receipts?.[0]
+      if (!receipt) throw new Error('No receipt in call bundle result')
+
+      const logs = parseEventLogs({
+        abi: VaultFactoryABI,
+        eventName: 'VaultCreated',
+        logs: receipt.logs as never[],
+      })
+      if (!logs.length) throw new Error('VaultCreated event not found in receipt')
+      const vaultAddress = (logs[0] as unknown as { args: { vault: `0x${string}` } }).args.vault
+      const blockNumber = Number(receipt.blockNumber)
+
+      const res = await fetch(`${API}/api/registry/vaults`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify({
+          companyId: getCompanyId(),
+          vaultAddress,
+          vaultType: 'confidential',
+          tokenAddress: CONFIDENTIAL_USDC_ADDRESS,
+          deployedAtBlock: blockNumber,
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json()
+        throw new Error(body?.error?.message ?? 'Failed to register vault')
+      }
+
+      storeVaultType('confidential')
+      return { vaultAddress, blockNumber, txHash: receipt.transactionHash }
+    } finally {
+      setIsPending(false)
+    }
+  }
+
+  return { createERC20Vault, createConfidentialVault, isPending }
 }

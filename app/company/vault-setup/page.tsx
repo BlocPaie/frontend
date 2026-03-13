@@ -7,12 +7,12 @@ import { useAccount } from 'wagmi';
 import { useCreateVault } from '@/hooks/useCreateVault';
 import Navbar from '@/components/Navbar';
 
-type VaultType = 'simple' | null;
+type VaultType = 'simple' | 'privacy' | null;
 
 export default function VaultSetup() {
   const router = useRouter();
   const { isConnected } = useAccount();
-  const { createERC20Vault, isPending } = useCreateVault();
+  const { createERC20Vault, createConfidentialVault, isPending } = useCreateVault();
   const [selected, setSelected] = useState<VaultType>(null);
   const [done, setDone] = useState(false);
   const [error, setError] = useState('');
@@ -27,7 +27,11 @@ export default function VaultSetup() {
     setError('');
 
     try {
-      await createERC20Vault();
+      if (selected === 'privacy') {
+        await createConfidentialVault();
+      } else {
+        await createERC20Vault();
+      }
       setDone(true);
       setTimeout(() => router.push('/company/dashboard'), 1200);
     } catch (err) {
@@ -63,28 +67,27 @@ export default function VaultSetup() {
             type="privacy"
             icon={<EyeOff size={26} color="#a78bfa" />}
             title="Privacy-Based Vault"
-            subtitle="fhEVM · Coming Soon"
+            subtitle="fhEVM · Encrypted"
             desc="Confidential vault using Zama's fully homomorphic encryption. Payee addresses and amounts are fully encrypted."
             pros={['Encrypted payees & amounts', 'Confidential payroll', 'KMS-backed security']}
             cons={['Higher gas cost', 'Slower execution']}
-            selected={false}
-            onSelect={() => {}}
+            selected={selected === 'privacy'}
+            onSelect={() => setSelected('privacy')}
             accent="#a78bfa"
             accentBg="rgba(167,139,250,0.06)"
             accentBorder="rgba(167,139,250,0.3)"
-            disabled
           />
         </div>
 
         {selected && (
-          <div className="glass-card animate-fade-up opacity-0-init" style={{ borderRadius: 12, padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginBottom: '1.5rem', borderColor: 'rgba(0,200,150,0.2)' }}>
+          <div className="glass-card animate-fade-up opacity-0-init" style={{ borderRadius: 12, padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', marginBottom: '1.5rem', borderColor: selected === 'privacy' ? 'rgba(167,139,250,0.3)' : 'rgba(0,200,150,0.2)' }}>
             <div>
               <div style={{ fontSize: '0.8rem', color: 'var(--slate-300)' }}>Selected</div>
               <div style={{ fontFamily: 'var(--font-syne), Syne, sans-serif', fontWeight: 700, fontSize: '0.95rem' }}>
-                Simple Token Vault (ERC-20)
+                {selected === 'privacy' ? 'Privacy-Based Vault (fhEVM)' : 'Simple Token Vault (ERC-20)'}
               </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: 'var(--green-400)', fontSize: '0.8rem', fontWeight: 600 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: selected === 'privacy' ? '#a78bfa' : 'var(--green-400)', fontSize: '0.8rem', fontWeight: 600 }}>
               <Check size={14} /> Confirmed
             </div>
           </div>
