@@ -53,12 +53,17 @@ export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) 
       // Must pass only UserDecryptRequestVerification type (not full eip712.types)
       // to match what the Zama relayer expects — mirrors the SDK's own signer.signTypedData call
       const eip712 = instance.createEIP712(publicKey, [vaultAddress], startTimestamp, durationDays)
+      console.log('[decrypt] eip712 domain:', JSON.stringify(eip712.domain))
+      console.log('[decrypt] eip712 message:', JSON.stringify(eip712.message))
+      console.log('[decrypt] userAddress:', address)
       const rawSig = await signTypedDataAsync({
         domain: eip712.domain,
         types: { UserDecryptRequestVerification: eip712.types.UserDecryptRequestVerification },
         primaryType: 'UserDecryptRequestVerification',
         message: eip712.message,
       } as never)
+      console.log('[decrypt] rawSig length:', rawSig.length, '(expect 132 for secp256k1)')
+      console.log('[decrypt] rawSig:', rawSig)
       // Zama relayer expects signature without 0x prefix
       const signature = rawSig.replace('0x', '')
 
