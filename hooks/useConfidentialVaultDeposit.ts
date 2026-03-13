@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAccount, useSendCalls, useConfig } from 'wagmi'
 import { readContract, waitForCallsStatus } from '@wagmi/core'
-import { encodeFunctionData, toHex } from 'viem'
+import { encodeFunctionData, toHex, getAddress } from 'viem'
 import ERC20ABI from '@/lib/abis/ERC20.json'
 import ConfidentialUSDCABI from '@/lib/abis/ConfidentialUSDC.json'
 import ConfidentialVaultABI from '@/lib/abis/ConfidentialVault.json'
@@ -40,8 +40,9 @@ export function useConfidentialVaultDeposit(vaultAddress: `0x${string}` | null) 
       }) as boolean
 
       // 3. Encrypt the deposit amount — proof is bound to (vaultAddress, address)
+      //    Zama SDK requires EIP-55 checksum addresses
       const instance = await getFhevmInstance()
-      const encInput = instance.createEncryptedInput(vaultAddress, address)
+      const encInput = instance.createEncryptedInput(getAddress(vaultAddress), getAddress(address))
       encInput.add64(amountScaled)
       const { handles, inputProof } = await encInput.encrypt()
 
