@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react'
-import { useAccount, useConfig } from 'wagmi'
-import { readContract, writeContract, waitForTransactionReceipt } from '@wagmi/core'
+import { useAccount, useConfig, useSendCalls } from 'wagmi'
+import { readContract, waitForCallsStatus } from '@wagmi/core'
+import { encodeFunctionData } from 'viem'
 import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import ConfidentialVaultABI from '@/lib/abis/ConfidentialVault.json'
 import { getFhevmInstance } from '@/lib/fhevm'
 
+const MERCHANT_URL = process.env.NEXT_PUBLIC_MERCHANT_URL ?? '/api/porto/merchant'
+
 export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) {
   const { address } = useAccount()
   const config = useConfig()
+  const { sendCallsAsync } = useSendCalls()
 
   const [totalBalance, setTotalBalance] = useState<number | null>(null)
   const [allocatedBalance, setAllocatedBalance] = useState<number | null>(null)
@@ -33,13 +37,19 @@ export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) 
       // 2. Grant the ephemeral address ACL access on the current encrypted handles.
       //    One Porto passkey tap — required because Porto signs with WebAuthn P256
       //    which Zama's ECDSA recovery cannot validate.
-      const hash = await writeContract(config, {
-        address: vaultAddress,
-        abi: ConfidentialVaultABI as never[],
-        functionName: 'grantDecryptAccess',
-        args: [decryptAccount.address],
+      //    Use sendCalls so the merchant route sponsors the gas.
+      const { id } = await sendCallsAsync({
+        calls: [{
+          to: vaultAddress,
+          data: encodeFunctionData({
+            abi: ConfidentialVaultABI,
+            functionName: 'grantDecryptAccess',
+            args: [decryptAccount.address],
+          }),
+        }],
+        capabilities: { merchantUrl: MERCHANT_URL } as never,
       })
-      await waitForTransactionReceipt(config, { hash })
+      await waitForCallsStatus(config, { id })
 
       // 3. Read both encrypted handles from the contract
       const [vaultBalHandle, allocHandle] = await Promise.all([
