@@ -3,12 +3,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAccount } from 'wagmi';
-import { FileText, Plus, Wallet, PieChart, UserPlus, ArrowDownToLine, X } from 'lucide-react';
+import { FileText, Plus, Wallet, PieChart, UserPlus, ArrowDownToLine, X, Lock, LockOpen } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import RegisterInvoiceModal from '@/components/RegisterInvoiceModal';
 import AddContractorModal from '@/components/AddContractorModal';
 import { useVaultBalance } from '@/hooks/useVaultBalance';
 import { useVaultDeposit } from '@/hooks/useVaultDeposit';
+import { useConfidentialVaultBalance } from '@/hooks/useConfidentialVaultBalance';
 import { getToken, getCompanyId } from '@/lib/auth';
 
 const API = process.env.NEXT_PUBLIC_API_URL;
@@ -23,7 +24,15 @@ interface Contractor {
 export default function CompanyDashboard() {
   const router = useRouter();
   const { address } = useAccount();
-  const { vaultAddress, vaultType, vaultId, totalBalance, allocatedBalance, loading: loadingVault, refetchBalances } = useVaultBalance();
+  const { vaultAddress, vaultType, vaultId, loading: loadingVault, refetchBalances,
+    totalBalance: erc20Total, allocatedBalance: erc20Allocated } = useVaultBalance();
+  const isConfidential = vaultType === 'confidential';
+  const { totalBalance: confTotal, allocatedBalance: confAllocated,
+    decrypting, error: decryptError, decrypt } = useConfidentialVaultBalance(
+      isConfidential ? vaultAddress : null
+    );
+  const totalBalance = isConfidential ? confTotal : erc20Total;
+  const allocatedBalance = isConfidential ? confAllocated : erc20Allocated;
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [invoiceTarget, setInvoiceTarget] = useState<Contractor | null>(null);
   const [showDeposit, setShowDeposit] = useState(false);
@@ -73,7 +82,7 @@ export default function CompanyDashboard() {
           <div>
             <h1 style={{ margin: '0 0 0.3rem', fontSize: '1.6rem', fontWeight: 800 }}>Dashboard</h1>
             <p style={{ margin: '0 0 0.25rem', color: 'var(--slate-300)', fontSize: '0.875rem' }}>
-              {loadingVault ? 'Loading…' : vaultType === 'erc20' ? 'Simple Token Vault' : vaultType ?? 'No vault'}
+              {loadingVault ? 'Loading…' : vaultType === 'erc20' ? 'Simple Token Vault' : vaultType === 'confidential' ? 'Privacy-Based Vault' : vaultType ?? 'No vault'}
             </p>
             {address && (
               <p className="mono" style={{ margin: 0, fontSize: '0.78rem', color: 'var(--slate-400)' }}>
@@ -99,25 +108,55 @@ export default function CompanyDashboard() {
         )}
 
         {/* Stats */}
-        <div className="animate-fade-up opacity-0-init delay-100" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2.5rem' }}>
-          <StatCard
-            icon={<Wallet size={20} color="var(--green-400)" />}
-            label="Total Vault Balance"
-            value={fmtUsd(totalBalance ?? 0)}
-            subtext="USDC · Sepolia"
-            accentBg="rgba(0,200,150,0.06)"
-            accentBorder="rgba(0,200,150,0.2)"
-            loading={loadingVault || totalBalance == null}
-          />
-          <StatCard
-            icon={<PieChart size={20} color="var(--amber-400)" />}
-            label="Allocated Balance"
-            value={fmtUsd(allocatedBalance ?? 0)}
-            subtext="Pending invoices"
-            accentBg="rgba(245,158,11,0.06)"
-            accentBorder="rgba(245,158,11,0.2)"
-            loading={loadingVault || allocatedBalance == null}
-          />
+        <div className="animate-fade-up opacity-0-init delay-100" style={{ marginBottom: '2.5rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+            <StatCard
+              icon={<Wallet size={20} color="var(--green-400)" />}
+              label="Total Vault Balance"
+              value={totalBalance != null ? fmtUsd(totalBalance) : isConfidential ? '🔒 Encrypted' : fmtUsd(0)}
+              subtext={isConfidential ? 'cUSDC · Sepolia' : 'USDC · Sepolia'}
+              accentBg="rgba(0,200,150,0.06)"
+              accentBorder="rgba(0,200,150,0.2)"
+              loading={loadingVault || (!isConfidential && totalBalance == null)}
+            />
+            <StatCard
+              icon={<PieChart size={20} color="var(--amber-400)" />}
+              label="Allocated Balance"
+              value={allocatedBalance != null ? fmtUsd(allocatedBalance) : isConfidential ? '🔒 Encrypted' : fmtUsd(0)}
+              subtext="Pending invoices"
+              accentBg="rgba(245,158,11,0.06)"
+              accentBorder="rgba(245,158,11,0.2)"
+              loading={loadingVault || (!isConfidential && allocatedBalance == null)}
+            />
+          </div>
+
+          {isConfidential && (
+            <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+              <button
+                className="btn-ghost btn-sm"
+                onClick={decrypt}
+                disabled={decrypting || loadingVault}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+              >
+                {decrypting ? (
+                  <>
+                    <span style={{ display: 'inline-block', width: 13, height: 13, border: '2px solid var(--slate-400)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                    Decrypting…
+                  </>
+                ) : totalBalance != null ? (
+                  <><LockOpen size={13} /> Refresh Balances</>
+                ) : (
+                  <><Lock size={13} /> Decrypt Balances</>
+                )}
+              </button>
+              {totalBalance != null && !decrypting && (
+                <span style={{ fontSize: '0.75rem', color: 'var(--slate-400)' }}>Decrypted · tap to refresh</span>
+              )}
+              {decryptError && (
+                <span style={{ fontSize: '0.78rem', color: 'var(--red-400, #f87171)' }}>{decryptError}</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Contractors table */}

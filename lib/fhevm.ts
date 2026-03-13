@@ -1,9 +1,12 @@
-import { createInstance, SepoliaConfig, type FhevmInstance } from '@zama-fhe/relayer-sdk/web'
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _instance: any | null = null
 
-let _instance: FhevmInstance | null = null
-
-export async function getFhevmInstance(): Promise<FhevmInstance> {
+export async function getFhevmInstance() {
   if (!_instance) {
+    // Use the bundle subpath: initSDK() fetches WASM from Zama's CDN at runtime
+    // so the bundler never processes the WASM file during next build
+    const { initSDK, createInstance, SepoliaConfig } = await import('@zama-fhe/relayer-sdk/bundle')
+    await initSDK()
     _instance = await createInstance({
       ...SepoliaConfig,
       network: process.env.NEXT_PUBLIC_RPC_URL ?? 'https://ethereum-sepolia-rpc.publicnode.com',
