@@ -6,7 +6,7 @@ import { getFhevmInstance } from '@/lib/fhevm'
 
 export function useConfidentialVaultBalance(vaultAddress: `0x${string}` | null) {
   const { address } = useAccount()
-  const { signTypedDataAsync } = useSignTypedData()
+  const { mutateAsync: signTypedDataAsync } = useSignTypedData()
   const config = useConfig()
 
   const [totalBalance, setTotalBalance] = useState<number | null>(null)
