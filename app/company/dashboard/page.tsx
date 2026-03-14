@@ -250,6 +250,7 @@ export default function CompanyDashboard() {
         <WithdrawModal
           vaultAddress={vaultAddress}
           vaultType={vaultType}
+          availableBalance={totalBalance != null && allocatedBalance != null ? totalBalance - allocatedBalance : null}
           onClose={() => setShowWithdraw(false)}
           onWithdraw={handleWithdraw}
         />
@@ -393,9 +394,10 @@ function DepositModal({ vaultAddress, vaultType, onClose, onDeposit }: {
   );
 }
 
-function WithdrawModal({ vaultAddress, vaultType, onClose, onWithdraw }: {
+function WithdrawModal({ vaultAddress, vaultType, availableBalance, onClose, onWithdraw }: {
   vaultAddress: `0x${string}` | null;
   vaultType: string | null;
+  availableBalance: number | null;
   onClose: () => void;
   onWithdraw: () => void;
 }) {
@@ -452,7 +454,17 @@ function WithdrawModal({ vaultAddress, vaultType, onClose, onWithdraw }: {
           )}
 
           <div>
-            <label className="form-label">Amount (USDC)</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.4rem' }}>
+              <label className="form-label" style={{ margin: 0 }}>Amount (USDC)</label>
+              {availableBalance != null && (
+                <button type="button" onClick={() => setAmount(availableBalance.toFixed(2))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.75rem', color: 'var(--slate-400)', fontFamily: 'var(--font-mono), IBM Plex Mono, monospace', padding: 0 }}>
+                  Available: <span style={{ color: 'var(--green-400)', fontWeight: 600 }}>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(availableBalance)}</span> · <span style={{ color: 'var(--slate-300)' }}>Max</span>
+                </button>
+              )}
+              {availableBalance == null && isConfidential && (
+                <span style={{ fontSize: '0.72rem', color: 'var(--slate-500)' }}>Decrypt balances to see max</span>
+              )}
+            </div>
             <div style={{ position: 'relative' }}>
               <input
                 className="form-input"

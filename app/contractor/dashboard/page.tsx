@@ -7,7 +7,7 @@ import TxHash from '@/components/TxHash';
 import { getContractorId, getToken } from '@/lib/auth';
 import { useVaultExecuteCheque } from '@/hooks/useVaultExecuteCheque';
 import { useConfidentialVaultExecuteCheque } from '@/hooks/useConfidentialVaultExecuteCheque';
-import { useConfig, useAccount, useSendCalls } from 'wagmi';
+import { useConfig, useAccount, useSendCalls, useReadContract } from 'wagmi';
 import { readContract, waitForCallsStatus } from '@wagmi/core';
 import { encodeFunctionData, toHex, getAddress, isAddress } from 'viem';
 import ERC20ABI from '@/lib/abis/ERC20.json';
@@ -49,6 +49,15 @@ export default function ContractorDashboard() {
 
   // Receive funds modal
   const [showReceive, setShowReceive] = useState<'erc20' | 'confidential' | null>(null);
+
+  const { data: usdcBalanceRaw } = useReadContract({
+    address: USDC_ADDRESS,
+    abi: ERC20ABI as never[],
+    functionName: 'balanceOf',
+    args: [address],
+    query: { enabled: !!address },
+  });
+  const usdcBalance = usdcBalanceRaw != null ? Number(usdcBalanceRaw as bigint) / 1_000_000 : null;
 
   const { executeCheque: executeErc20, executing: executingErc20 } = useVaultExecuteCheque(
     payoutAddress && isAddress(payoutAddress) ? payoutAddress as `0x${string}` : null
@@ -235,9 +244,16 @@ export default function ContractorDashboard() {
           {hasPayoutAddress && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', minWidth: 180 }}>
               <div style={{ fontSize: '0.72rem', color: 'var(--slate-400)', fontFamily: 'var(--font-syne), Syne, sans-serif', fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: '0.2rem' }}>Receive Funds</div>
-              <button className="btn-ghost btn-sm" style={{ justifyContent: 'flex-start' }} onClick={() => setShowReceive('erc20')}>
-                <ArrowDownToLine size={12} /> Receive USDC
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button className="btn-ghost btn-sm" style={{ justifyContent: 'flex-start' }} onClick={() => setShowReceive('erc20')}>
+                  <ArrowDownToLine size={12} /> Receive USDC
+                </button>
+                {usdcBalance != null && (
+                  <span className="mono" style={{ fontSize: '0.72rem', color: 'var(--slate-400)' }}>
+                    {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(usdcBalance)} in wallet
+                  </span>
+                )}
+              </div>
               <button className="btn-ghost btn-sm" style={{ justifyContent: 'flex-start' }} onClick={() => setShowReceive('confidential')}>
                 <ArrowDownToLine size={12} /> Unwrap & Receive cUSDC
               </button>
@@ -352,6 +368,7 @@ export default function ContractorDashboard() {
           type={showReceive}
           payoutAddress={payoutAddress as `0x${string}`}
           portoAddress={address ?? null}
+          usdcBalance={usdcBalance}
           config={config}
           sendCallsAsync={sendCallsAsync}
           onClose={() => setShowReceive(null)}
@@ -362,10 +379,11 @@ export default function ContractorDashboard() {
   );
 }
 
-function ReceiveFundsModal({ type, payoutAddress, portoAddress, config, sendCallsAsync, onClose, onDone }: {
+function ReceiveFundsModal({ type, payoutAddress, portoAddress, usdcBalance, config, sendCallsAsync, onClose, onDone }: {
   type: 'erc20' | 'confidential';
   payoutAddress: `0x${string}`;
   portoAddress: `0x${string}` | null;
+  usdcBalance: number | null;
   config: ReturnType<typeof useConfig>;
   sendCallsAsync: ReturnType<typeof useSendCalls>['sendCallsAsync'];
   onClose: () => void;
@@ -457,7 +475,14 @@ function ReceiveFundsModal({ type, payoutAddress, portoAddress, config, sendCall
           )}
 
           <div>
-            <label className="form-label">Amount ({isConf ? 'cUSDC' : 'USDC'})</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.4rem' }}>
+              <label className="form-label" style={{ margin: 0 }}>Amount ({isConf ? 'cUSDC' : 'USDC'})</label>
+              {!isConf && usdcBalance != null && (
+                <button type="button" onClick={() => setAmount(usdcBalance.toFixed(2))} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.75rem', color: 'var(--slate-400)', fontFamily: 'var(--font-mono), IBM Plex Mono, monospace', padding: 0 }}>
+                  Balance: <span style={{ color: 'var(--green-400)', fontWeight: 600 }}>{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(usdcBalance)}</span> · <span style={{ color: 'var(--slate-300)' }}>Max</span>
+                </button>
+              )}
+            </div>
             <div style={{ position: 'relative' }}>
               <input
                 className="form-input"
