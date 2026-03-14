@@ -3,14 +3,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAccount } from 'wagmi';
-import { FileText, Plus, Wallet, PieChart, UserPlus, ArrowDownToLine, X, Lock, LockOpen } from 'lucide-react';
+import { FileText, Plus, Wallet, PieChart, UserPlus, ArrowDownToLine, ArrowUpFromLine, X, Lock, LockOpen } from 'lucide-react';
 import Navbar from '@/components/Navbar';
 import RegisterInvoiceModal from '@/components/RegisterInvoiceModal';
 import AddContractorModal from '@/components/AddContractorModal';
 import { useVaultBalance } from '@/hooks/useVaultBalance';
 import { useVaultDeposit } from '@/hooks/useVaultDeposit';
+import { useVaultWithdraw } from '@/hooks/useVaultWithdraw';
 import { useConfidentialVaultBalance } from '@/hooks/useConfidentialVaultBalance';
 import { useConfidentialVaultDeposit } from '@/hooks/useConfidentialVaultDeposit';
+import { useConfidentialVaultWithdraw } from '@/hooks/useConfidentialVaultWithdraw';
 import { getToken, getCompanyId } from '@/lib/auth';
 
 const API = process.env.NEXT_PUBLIC_API_URL;
@@ -37,6 +39,7 @@ export default function CompanyDashboard() {
   const [contractors, setContractors] = useState<Contractor[]>([]);
   const [invoiceTarget, setInvoiceTarget] = useState<Contractor | null>(null);
   const [showDeposit, setShowDeposit] = useState(false);
+  const [showWithdraw, setShowWithdraw] = useState(false);
   const [showAddContractor, setShowAddContractor] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
@@ -63,12 +66,15 @@ export default function CompanyDashboard() {
 
   const handleDeposit = () => {
     setShowDeposit(false);
-    if (isConfidential) {
-      decrypt();
-    } else {
-      refetchBalances();
-    }
+    if (isConfidential) { decrypt(); } else { refetchBalances(); }
     setSuccessMsg('Funds deposited successfully!');
+    setTimeout(() => setSuccessMsg(''), 3000);
+  };
+
+  const handleWithdraw = () => {
+    setShowWithdraw(false);
+    if (isConfidential) { decrypt(); } else { refetchBalances(); }
+    setSuccessMsg('Funds withdrawn successfully!');
     setTimeout(() => setSuccessMsg(''), 3000);
   };
 
@@ -97,7 +103,10 @@ export default function CompanyDashboard() {
           </div>
           <div style={{ display: 'flex', gap: '0.75rem' }}>
             <button className="btn-primary btn-md" onClick={() => setShowDeposit(true)}>
-              <ArrowDownToLine size={15} /> Deposit Funds
+              <ArrowDownToLine size={15} /> Deposit
+            </button>
+            <button className="btn-ghost btn-md" onClick={() => setShowWithdraw(true)}>
+              <ArrowUpFromLine size={15} /> Withdraw
             </button>
             <button className="btn-ghost btn-md" onClick={() => router.push('/company/invoices')}>
               <FileText size={15} /> View Invoices
@@ -237,6 +246,15 @@ export default function CompanyDashboard() {
         />
       )}
 
+      {showWithdraw && (
+        <WithdrawModal
+          vaultAddress={vaultAddress}
+          vaultType={vaultType}
+          onClose={() => setShowWithdraw(false)}
+          onWithdraw={handleWithdraw}
+        />
+      )}
+
     </div>
   );
 }
@@ -366,6 +384,110 @@ function DepositModal({ vaultAddress, vaultType, onClose, onDeposit }: {
                 </>
               ) : (
                 <><ArrowDownToLine size={15} /> Deposit</>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function WithdrawModal({ vaultAddress, vaultType, onClose, onWithdraw }: {
+  vaultAddress: `0x${string}` | null;
+  vaultType: string | null;
+  onClose: () => void;
+  onWithdraw: () => void;
+}) {
+  const isConfidential = vaultType === 'confidential';
+  const { withdraw: withdrawErc20, isPending: pendingErc20 } = useVaultWithdraw(isConfidential ? null : vaultAddress);
+  const { withdraw: withdrawConf, isPending: pendingConf } = useConfidentialVaultWithdraw(isConfidential ? vaultAddress : null);
+  const withdraw = isConfidential ? withdrawConf : withdrawErc20;
+  const loading = isConfidential ? pendingConf : pendingErc20;
+  const [amount, setAmount] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const parsed = parseFloat(amount);
+    if (!parsed || parsed <= 0) return;
+    setError('');
+    try {
+      await withdraw(parsed);
+      onWithdraw();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Withdrawal failed. Please try again.');
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-box glass-card"
+        style={{ maxWidth: 400, borderRadius: 16, padding: '2rem' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.75rem' }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: '1.15rem', fontWeight: 700 }}>Withdraw Funds</h3>
+            <p style={{ margin: '0.3rem 0 0', fontSize: '0.82rem', color: 'var(--slate-300)' }}>
+              {isConfidential ? 'Withdraw from vault and unwrap cUSDC → USDC' : 'Withdraw USDC from your vault to your wallet'}
+            </p>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--slate-400)', padding: 4, borderRadius: 6 }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.2rem' }}>
+          <div>
+            <label className="form-label">Vault</label>
+            <input className="form-input" value={isConfidential ? 'Privacy-Based Vault (cUSDC)' : 'Simple Token Vault (USDC)'} disabled />
+          </div>
+
+          {isConfidential && (
+            <div style={{ padding: '0.75rem 1rem', background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)', borderRadius: 10, fontSize: '0.8rem', color: 'var(--slate-300)', lineHeight: 1.5 }}>
+              This bundles two steps: vault withdrawal → cUSDC unwrap. You will receive <span style={{ color: 'var(--amber-400)', fontWeight: 600 }}>USDC</span> in your wallet once the KMS finalises the unwrap.
+            </div>
+          )}
+
+          <div>
+            <label className="form-label">Amount (USDC)</label>
+            <div style={{ position: 'relative' }}>
+              <input
+                className="form-input"
+                type="number"
+                min="0.01"
+                step="0.01"
+                placeholder="0.00"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                required
+                style={{ paddingRight: '4rem' }}
+                autoFocus
+              />
+              <span className="mono" style={{ position: 'absolute', right: '0.9rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.72rem', color: 'var(--slate-400)', fontWeight: 500 }}>
+                USDC
+              </span>
+            </div>
+          </div>
+
+          {error && (
+            <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--red-400, #f87171)' }}>{error}</p>
+          )}
+
+          <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem' }}>
+            <button type="button" className="btn-ghost btn-md" style={{ flex: 1 }} onClick={onClose}>
+              Cancel
+            </button>
+            <button type="submit" className="btn-primary btn-md" style={{ flex: 2, justifyContent: 'center' }} disabled={loading || !amount}>
+              {loading ? (
+                <>
+                  <span style={{ display: 'inline-block', width: 14, height: 14, border: '2px solid #050d1a', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  Withdrawing…
+                </>
+              ) : (
+                <><ArrowUpFromLine size={15} /> Withdraw</>
               )}
             </button>
           </div>
