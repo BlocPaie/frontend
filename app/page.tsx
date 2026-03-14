@@ -37,6 +37,7 @@ async function routeAfterConnect(address: string, role: 'company' | 'contractor'
 export default function Home() {
   const [showRoleModal, setShowRoleModal] = useState(false);
   const [pendingRole, setPendingRole] = useState<'company' | 'contractor' | null>(null);
+  const [routing, setRouting] = useState<'company' | 'contractor' | null>(null);
   const router = useRouter();
   const { connect, connectors, isPending } = useConnect();
   const { isConnected, address } = useAccount();
@@ -46,17 +47,21 @@ export default function Home() {
     if (isConnected && address && pendingRole) {
       const role = pendingRole;
       setPendingRole(null);
+      setRouting(role);
       routeAfterConnect(address, role)
         .then(path => router.push(path))
-        .catch(console.error);
+        .catch(console.error)
+        .finally(() => setRouting(null));
     }
   }, [isConnected, address, pendingRole, router]);
 
   function handleRoleSelect(role: 'company' | 'contractor') {
     if (isConnected && address) {
+      setRouting(role);
       routeAfterConnect(address, role)
         .then(path => router.push(path))
-        .catch(console.error);
+        .catch(console.error)
+        .finally(() => setRouting(null));
       return;
     }
     setPendingRole(role);
@@ -143,6 +148,15 @@ export default function Home() {
         </div>
       </main>
 
+      {/* Loading overlay — shown while routing after Porto connects */}
+      {routing && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'rgba(5,13,26,0.85)', backdropFilter: 'blur(8px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1.25rem' }}>
+          <div style={{ width: 48, height: 48, border: '3px solid rgba(0,200,150,0.2)', borderTopColor: 'var(--green-400)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+          <div style={{ fontFamily: 'var(--font-syne), Syne, sans-serif', fontWeight: 700, fontSize: '1.05rem', color: 'var(--white)' }}>Loading dashboard…</div>
+          <div style={{ fontSize: '0.8rem', color: 'var(--slate-400)' }}>Setting up your {routing} account</div>
+        </div>
+      )}
+
       {/* Role Modal */}
       {showRoleModal && (
         <div className="modal-overlay" onClick={() => setShowRoleModal(false)}>
@@ -157,8 +171,8 @@ export default function Home() {
               </button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-              <RoleCard icon={<Building2 size={28} color="var(--green-400)" />} title="I'm a Company" desc="Deploy a vault and manage contractor payments" accent="var(--green-400)" accentBg="rgba(0,200,150,0.08)" accentBorder="rgba(0,200,150,0.2)" loading={isPending && pendingRole === 'company'} onClick={() => handleRoleSelect('company')} />
-              <RoleCard icon={<HardHat size={28} color="var(--amber-400)" />} title="I'm a Contractor" desc="Receive invoice payments from companies" accent="var(--amber-400)" accentBg="rgba(245,158,11,0.08)" accentBorder="rgba(245,158,11,0.2)" loading={isPending && pendingRole === 'contractor'} onClick={() => handleRoleSelect('contractor')} />
+              <RoleCard icon={<Building2 size={28} color="var(--green-400)" />} title="I'm a Company" desc="Deploy a vault and manage contractor payments" accent="var(--green-400)" accentBg="rgba(0,200,150,0.08)" accentBorder="rgba(0,200,150,0.2)" loading={(isPending && pendingRole === 'company') || routing === 'company'} loadingLabel={routing === 'company' ? 'Loading dashboard…' : 'Connecting…'} onClick={() => handleRoleSelect('company')} />
+              <RoleCard icon={<HardHat size={28} color="var(--amber-400)" />} title="I'm a Contractor" desc="Receive invoice payments from companies" accent="var(--amber-400)" accentBg="rgba(245,158,11,0.08)" accentBorder="rgba(245,158,11,0.2)" loading={(isPending && pendingRole === 'contractor') || routing === 'contractor'} loadingLabel={routing === 'contractor' ? 'Loading dashboard…' : 'Connecting…'} onClick={() => handleRoleSelect('contractor')} />
             </div>
           </div>
         </div>
@@ -167,8 +181,8 @@ export default function Home() {
   );
 }
 
-function RoleCard({ icon, title, desc, accent, accentBg, accentBorder, loading, onClick }: {
-  icon: React.ReactNode; title: string; desc: string; accent: string; accentBg: string; accentBorder: string; loading?: boolean; onClick: () => void;
+function RoleCard({ icon, title, desc, accent, accentBg, accentBorder, loading, loadingLabel, onClick }: {
+  icon: React.ReactNode; title: string; desc: string; accent: string; accentBg: string; accentBorder: string; loading?: boolean; loadingLabel?: string; onClick: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   return (
@@ -185,7 +199,7 @@ function RoleCard({ icon, title, desc, accent, accentBg, accentBorder, loading, 
       <div style={{ fontFamily: 'var(--font-syne), Syne, sans-serif', fontWeight: 700, fontSize: '1.05rem', color: 'var(--white)', marginBottom: '0.4rem' }}>{title}</div>
       <div style={{ fontSize: '0.8rem', color: 'var(--slate-300)', lineHeight: 1.5 }}>{desc}</div>
       <div style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.78rem', fontWeight: 600, fontFamily: 'var(--font-syne), Syne, sans-serif', color: accent, opacity: hovered || loading ? 1 : 0, transition: 'opacity 0.2s' }}>
-        {loading ? 'Connecting…' : 'Continue'} {!loading && <ChevronRight size={13} />}
+        {loading ? (loadingLabel ?? 'Connecting…') : 'Continue'} {!loading && <ChevronRight size={13} />}
       </div>
     </button>
   );
