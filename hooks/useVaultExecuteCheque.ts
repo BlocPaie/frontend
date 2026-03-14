@@ -3,31 +3,50 @@ import { useSendCalls, useConfig } from 'wagmi'
 import { waitForCallsStatus } from '@wagmi/core'
 import { encodeFunctionData, parseEventLogs } from 'viem'
 import ERC20VaultABI from '@/lib/abis/ERC20Vault.json'
+import ERC20ABI from '@/lib/abis/ERC20.json'
+import { USDC_ADDRESS } from '@/lib/constants'
 import { getToken } from '@/lib/auth'
 
 const API = process.env.NEXT_PUBLIC_API_URL
 const MERCHANT_URL = process.env.NEXT_PUBLIC_MERCHANT_URL ?? '/api/porto/merchant'
 
-export function useVaultExecuteCheque() {
+export function useVaultExecuteCheque(payoutAddress?: `0x${string}` | null) {
   const { sendCallsAsync } = useSendCalls()
   const config = useConfig()
   const [executing, setExecuting] = useState<string | null>(null)
 
-  async function executeCheque(invoiceId: string, vaultAddress: `0x${string}`, chequeId: number) {
+  async function executeCheque(invoiceId: string, vaultAddress: `0x${string}`, chequeId: number, amount: string) {
     setExecuting(invoiceId)
     try {
       const token = getToken()
+      const amountScaled = BigInt(Math.round(parseFloat(amount) * 1_000_000))
 
-      // 1. Submit executeCheque on-chain (msg.sender = contractor = registered payee)
-      const { id } = await sendCallsAsync({
-        calls: [{
+      const calls: { to: `0x${string}`; data: `0x${string}` }[] = [
+        {
           to: vaultAddress,
           data: encodeFunctionData({
             abi: ERC20VaultABI,
             functionName: 'executeCheque',
             args: [BigInt(chequeId)],
           }),
-        }],
+        },
+      ]
+
+      // If payout address is set, forward USDC immediately after execute
+      if (payoutAddress) {
+        calls.push({
+          to: USDC_ADDRESS,
+          data: encodeFunctionData({
+            abi: ERC20ABI,
+            functionName: 'transfer',
+            args: [payoutAddress, amountScaled],
+          }),
+        })
+      }
+
+      // 1. Submit on-chain (msg.sender = contractor = registered payee)
+      const { id } = await sendCallsAsync({
+        calls,
         capabilities: { merchantUrl: MERCHANT_URL } as never,
       })
 
