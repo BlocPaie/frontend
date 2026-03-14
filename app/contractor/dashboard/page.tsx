@@ -299,12 +299,13 @@ export default function ContractorDashboard() {
                 ) : (
                   <div style={{ overflowX: 'auto' }}>
                     <table className="data-table">
-                      <thead><tr><th>Invoice ID</th><th>Vault</th><th style={{ textAlign: 'right' }}>Amount</th><th>Created</th><th>Action</th></tr></thead>
+                      <thead><tr><th>Invoice ID</th><th>Vault</th><th>Type</th><th style={{ textAlign: 'right' }}>Amount</th><th>Created</th><th>Action</th></tr></thead>
                       <tbody>
                         {pending.map((inv, i) => (
                           <tr key={inv._id} className="animate-fade-up opacity-0-init" style={{ animationDelay: `${0.35 + i * 0.06}s` }}>
                             <td><span className="mono" style={{ fontSize: '0.78rem', color: 'var(--amber-400)', fontWeight: 500 }}>{inv._id.slice(-8)}</span></td>
                             <td><span className="mono" style={{ fontSize: '0.78rem', color: 'var(--slate-300)' }}>{inv.vaultAddress ? `${inv.vaultAddress.slice(0, 6)}…${inv.vaultAddress.slice(-4)}` : '—'}</span></td>
+                            <td><VaultTypeBadge type={inv.vaultType} /></td>
                             <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono), IBM Plex Mono, monospace', fontSize: '0.875rem', fontWeight: 500, color: 'var(--white)' }}>{fmtAmount(inv.amount)}</td>
                             <td style={{ color: 'var(--slate-400)', fontSize: '0.82rem' }}>{fmtDate(inv.issuedAt)}</td>
                             <td>
@@ -342,12 +343,13 @@ export default function ContractorDashboard() {
                 ) : (
                   <div style={{ overflowX: 'auto' }}>
                     <table className="data-table">
-                      <thead><tr><th>Invoice ID</th><th>Vault</th><th style={{ textAlign: 'right' }}>Amount</th><th>Executed</th><th>Tx Hash</th></tr></thead>
+                      <thead><tr><th>Invoice ID</th><th>Vault</th><th>Type</th><th style={{ textAlign: 'right' }}>Amount</th><th>Executed</th><th>Tx Hash</th></tr></thead>
                       <tbody>
                         {executed.map((inv, i) => (
                           <tr key={inv._id} className="animate-fade-up opacity-0-init" style={{ animationDelay: `${0.4 + i * 0.06}s` }}>
                             <td><span className="mono" style={{ fontSize: '0.78rem', color: 'var(--green-400)', fontWeight: 500 }}>{inv._id.slice(-8)}</span></td>
                             <td><span className="mono" style={{ fontSize: '0.78rem', color: 'var(--slate-300)' }}>{inv.vaultAddress ? `${inv.vaultAddress.slice(0, 6)}…${inv.vaultAddress.slice(-4)}` : '—'}</span></td>
+                            <td><VaultTypeBadge type={inv.vaultType} /></td>
                             <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono), IBM Plex Mono, monospace', fontSize: '0.875rem', fontWeight: 500, color: 'var(--white)' }}>{fmtAmount(inv.amount)}</td>
                             <td style={{ color: 'var(--slate-400)', fontSize: '0.82rem' }}>{fmtDate(inv.issuedAt)}</td>
                             <td>{inv.txHash ? <TxHash hash={inv.txHash} /> : <span style={{ color: 'var(--slate-500)', fontSize: '0.78rem' }}>—</span>}</td>
@@ -376,6 +378,28 @@ export default function ContractorDashboard() {
         />
       )}
     </div>
+  );
+}
+
+function VaultTypeBadge({ type }: { type: string | null }) {
+  if (!type) return <span style={{ color: 'var(--slate-500)', fontSize: '0.75rem' }}>—</span>;
+  const isConf = type === 'confidential';
+  return (
+    <span style={{
+      display: 'inline-block',
+      fontSize: '0.68rem',
+      fontFamily: 'var(--font-syne), Syne, sans-serif',
+      fontWeight: 700,
+      letterSpacing: '0.05em',
+      textTransform: 'uppercase',
+      padding: '0.15rem 0.5rem',
+      borderRadius: '100px',
+      background: isConf ? 'rgba(99,102,241,0.12)' : 'rgba(0,200,150,0.08)',
+      border: `1px solid ${isConf ? 'rgba(99,102,241,0.3)' : 'rgba(0,200,150,0.25)'}`,
+      color: isConf ? 'var(--indigo-400, #818cf8)' : 'var(--green-400)',
+    }}>
+      {isConf ? 'Private' : 'ERC-20'}
+    </span>
   );
 }
 
